@@ -5,9 +5,9 @@ import {
   Copy, Check, FileText, BookOpen, ListChecks, MessageCircle,
   Download, Gift, AlertTriangle, Save, RotateCcw, History, GitCompare,
   Trash2, Clock, XCircle, CheckCircle2, CircleDot, BookOpenCheck,
-  Handshake, Headphones, Pencil, Plus, Minus, ChevronDown, ChevronUp,
-  Eye, PanelRightClose, Rocket, BarChart3, Users, TrendingUp, TrendingDown,
-  Activity, Target,
+  Handshake, Headphones, Pencil, Plus,
+  Eye, Rocket, BarChart3, Users, TrendingUp, TrendingDown,
+  Activity, Target, ListOrdered,
 } from 'lucide-react';
 import { useCouponStore } from '@/store/useCouponStore';
 import {
@@ -22,13 +22,12 @@ import {
   formatFieldForDiff,
   getActivityStatusLabel,
   getActivityStatusBadgeClass,
-  getActivityStatusColor,
   getLaunchChecklistSummary,
 } from '@/utils/formatters';
 import { couponTemplates } from '@/mock/couponTemplates';
-import type { ActivitySummary, DepartmentType, ApprovalStatus, CouponPackVersion, VersionDiff } from '@/types';
+import type { ActivitySummary, DepartmentType, ApprovalStatus, CouponPackVersion, VersionDiff, UserRoleType } from '@/types';
 
-type TabType = 'books' | 'rules' | 'scripts' | 'approvals' | 'launch' | 'dashboard' | 'versions';
+type TabType = 'books' | 'rules' | 'scripts' | 'approvals' | 'launch' | 'dashboard' | 'versions' | 'activity_log';
 
 export default function Summary() {
   const navigate = useNavigate();
@@ -37,6 +36,7 @@ export default function Summary() {
     approvals,
     versions,
     currentVersionNo,
+    changeRecords,
     saveVersion,
     restoreVersion,
     deleteVersion,
@@ -47,6 +47,8 @@ export default function Summary() {
     publishActivity,
     endActivity,
     getDashboard,
+    validate,
+    setLastOperator,
   } = useCouponStore();
 
   const [activeTab, setActiveTab] = useState<TabType>('books');
@@ -61,7 +63,9 @@ export default function Summary() {
   const [diffV1, setDiffV1] = useState<string>('');
   const [diffV2, setDiffV2] = useState<string>('');
 
-  const [publishToast, setPublishToast] = useState<string | null>(null);
+  const [publishToast, setPublishToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [filterRole, setFilterRole] = useState<UserRoleType | 'all'>('all');
+  const [animateNumbers, setAnimateNumbers] = useState(false);
 
   const template = config.type ? couponTemplates[config.type] : null;
 
@@ -109,12 +113,27 @@ ${script.content}
   };
 
   const handlePublish = () => {
+    const isValid = validate();
+    if (!isValid) {
+      const checklist = getLaunchChecklist();
+      const failed = checklist.filter(i => !i.passed).length;
+      setPublishToast({ type: 'error', message: `还有 ${failed} 项未通过检查，请先完成所有检查项` });
+      setTimeout(() => setPublishToast(null), 3000);
+      return;
+    }
     const success = publishActivity();
     if (!success) {
       const checklist = getLaunchChecklist();
       const failed = checklist.filter(i => !i.passed).length;
-      setPublishToast(`还有 ${failed} 项未通过，请先完成检查`);
+      setPublishToast({ type: 'error', message: `还有 ${failed} 项未通过检查，请先完成所有检查项` });
       setTimeout(() => setPublishToast(null), 3000);
+    } else {
+      setPublishToast({ type: 'success', message: '活动发布成功！' });
+      setAnimateNumbers(true);
+      setTimeout(() => {
+        setPublishToast(null);
+        setAnimateNumbers(false);
+      }, 3000);
     }
   };
 
@@ -140,7 +159,6 @@ ${script.content}
   };
 
   const handleApprove = (dept: DepartmentType, approved: boolean) => {
-    const deptInfo = approvals.find(a => a.department === dept);
     const remark = remarkMap[dept] || '';
     updateApproval(dept, approved ? 'approved' : 'rejected', remark, operator);
   };
@@ -153,9 +171,9 @@ ${script.content}
   const handleBack = () => navigate('/preview');
   const handleToConfig = () => navigate('/config');
 
-  const launchChecklist = useMemo(() => getLaunchChecklist(), [getLaunchChecklist]);
+  const launchChecklist = useMemo(() => getLaunchChecklist(), [getLaunchChecklist, config, approvals, versions]); // eslint-disable-line react-hooks/exhaustive-deps
   const launchSummary = useMemo(() => getLaunchChecklistSummary(launchChecklist), [launchChecklist]);
-  const dashboard = useMemo(() => getDashboard(), [getDashboard]);
+  const dashboard = useMemo(() => getDashboard(filterRole), [getDashboard, filterRole, config]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tabs = [
     { id: 'books' as TabType, label: '覆盖书单', icon: BookOpen },
@@ -165,6 +183,7 @@ ${script.content}
     { id: 'launch' as TabType, label: '上线检查', icon: Rocket, badge: launchSummary.allPassed ? 'approved' as ApprovalStatus : launchSummary.passed > 0 ? 'pending' as ApprovalStatus : undefined },
     { id: 'dashboard' as TabType, label: '数据看板', icon: BarChart3 },
     { id: 'versions' as TabType, label: '版本历史', icon: History, badgeNum: versions.length },
+    { id: 'activity_log' as TabType, label: '调整记录', icon: ListOrdered, badgeNum: changeRecords.length },
   ];
 
   if (!config.type || !summary) {
@@ -209,14 +228,6 @@ ${script.content}
               <Save className="w-4 h-4" />
               保存版本
             </button>
-            <button
-              onClick={handlePublish}
-              disabled={!launchSummary.allPassed}
-              className={`flex items-center gap-2 disabled:opacity-50 ${launchSummary.allPassed ? 'btn-secondary border-accent-green/50 text-accent-green hover:bg-accent-green/20' : 'btn-secondary'}`}
-            >
-              <Rocket className="w-4 h-4" />
-              发布活动
-            </button>
             <button onClick={handleCopyAll} className="btn-primary flex items-center gap-2">
               {copiedIndex === -1 ? (
                 <><Check className="w-4 h-4 text-ink-950" />已复制</>
@@ -229,9 +240,17 @@ ${script.content}
 
         {publishToast && (
           <div className="fixed top-6 right-6 z-50 animate-fade-in">
-            <div className="flex items-center gap-2 px-4 py-3 bg-red-500/15 border border-red-500/40 rounded-card text-red-400">
-              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-              <span className="font-medium">{publishToast}</span>
+            <div className={`flex items-center gap-2 px-4 py-3 rounded-card ${
+              publishToast.type === 'success'
+                ? 'bg-accent-green/15 border border-accent-green/40 text-accent-green'
+                : 'bg-red-500/15 border border-red-500/40 text-red-400'
+            }`}>
+              {publishToast.type === 'success' ? (
+                <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+              ) : (
+                <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+              )}
+              <span className="font-medium">{publishToast.message}</span>
             </div>
           </div>
         )}
@@ -462,7 +481,10 @@ ${script.content}
                   <span className="text-ink-400">操作人：</span>
                   <input
                     value={operator}
-                    onChange={(e) => setOperator(e.target.value)}
+                    onChange={(e) => {
+                      setOperator(e.target.value);
+                      setLastOperator(e.target.value);
+                    }}
                     className="w-28 bg-ink-900 border border-ink-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-accent-orange"
                     placeholder="输入姓名"
                   />
@@ -667,41 +689,52 @@ ${script.content}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {launchChecklist.map((item) => (
-                <div
-                  key={item.key}
-                  className={`p-5 rounded-card border transition-all ${
-                    item.passed
-                      ? 'bg-ink-800/50 border-accent-green/40'
-                      : 'bg-ink-800/30 border-ink-700 hover:border-ink-600'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h4 className={`font-semibold ${item.passed ? 'text-white' : 'text-paper-200'}`}>
-                          {item.label}
-                        </h4>
+              {launchChecklist.map((item) => {
+                const isDateError = item.key === 'validity' && item.detail?.includes('⚠️');
+                return (
+                  <div
+                    key={item.key}
+                    className={`p-5 rounded-card border transition-all ${
+                      isDateError
+                        ? 'bg-red-500/10 border-red-500/50'
+                        : item.passed
+                        ? 'bg-ink-800/50 border-accent-green/40'
+                        : 'bg-ink-800/30 border-ink-700 hover:border-ink-600'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h4 className={`font-semibold ${item.passed ? 'text-white' : isDateError ? 'text-red-400' : 'text-paper-200'}`}>
+                            {item.label}
+                          </h4>
+                        </div>
+                        <p className="text-ink-400 text-sm mt-1">{item.description}</p>
+                        {item.detail && (
+                          <p className={`text-xs mt-3 ${
+                            isDateError ? 'text-red-400' :
+                            item.passed ? 'text-accent-green' : 'text-ink-500'
+                          }`}>
+                            {item.detail}
+                          </p>
+                        )}
                       </div>
-                      <p className="text-ink-400 text-sm mt-1">{item.description}</p>
-                      {item.detail && (
-                        <p className={`text-xs mt-3 ${item.passed ? 'text-accent-green' : 'text-ink-500'}`}>
-                          {item.detail}
-                        </p>
-                      )}
-                    </div>
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-                      item.passed ? 'bg-accent-green/20' : 'bg-ink-700'
-                    }`}>
-                      {item.passed ? (
-                        <CheckCircle2 className="w-6 h-6 text-accent-green" />
-                      ) : (
-                        <XCircle className="w-6 h-6 text-ink-500" />
-                      )}
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        isDateError ? 'bg-red-500/20' :
+                        item.passed ? 'bg-accent-green/20' : 'bg-ink-700'
+                      }`}>
+                        {item.passed ? (
+                          <CheckCircle2 className="w-6 h-6 text-accent-green" />
+                        ) : isDateError ? (
+                          <AlertTriangle className="w-6 h-6 text-red-400" />
+                        ) : (
+                          <XCircle className="w-6 h-6 text-ink-500" />
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -713,21 +746,65 @@ ${script.content}
                 <BarChart3 className="w-5 h-5 text-accent-orange" />
                 活动数据看板
               </h3>
-              {config.activityStatus === 'published' && (
-                <button
-                  onClick={() => {
-                    if (confirm('确定要提前结束活动吗？结束后用户将无法继续领取。')) {
-                      endActivity();
-                    }
-                  }}
-                  className="btn-secondary text-sm flex items-center gap-1.5 text-red-400 border-red-500/30 hover:bg-red-500/10"
-                >
-                  <XCircle className="w-4 h-4" />结束活动
-                </button>
-              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1 bg-ink-800/50 rounded-card p-1 border border-ink-700">
+                  {[
+                    { key: 'all' as const, label: '全部人群' },
+                    { key: 'new_user' as const, label: '新用户' },
+                    { key: 'existing_user' as const, label: '老用户' },
+                    { key: 'expired_member' as const, label: '会员过期用户' },
+                  ].map((f) => (
+                    <button
+                      key={f.key}
+                      onClick={() => setFilterRole(f.key)}
+                      className={`px-3 py-1.5 rounded text-sm font-medium transition-all ${
+                        filterRole === f.key
+                          ? 'bg-accent-orange text-ink-950'
+                          : 'text-ink-400 hover:text-white hover:bg-ink-700'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                {config.activityStatus === 'published' && (
+                  <button
+                    onClick={() => {
+                      if (confirm('确定要提前结束活动吗？结束后用户将无法继续领取。')) {
+                        endActivity();
+                      }
+                    }}
+                    className="btn-secondary text-sm flex items-center gap-1.5 text-red-400 border-red-500/30 hover:bg-red-500/10"
+                  >
+                    <XCircle className="w-4 h-4" />结束活动
+                  </button>
+                )}
+              </div>
             </div>
 
-            {!dashboard ? (
+            {config.activityStatus !== 'published' ? (
+              <div className="card p-12 text-center">
+                <BarChart3 className="w-16 h-16 text-ink-600 mx-auto mb-4" />
+                <h3 className="font-display text-xl font-semibold text-white mb-2">活动发布后才能看到数据</h3>
+                <p className="text-ink-400 mb-6">请先完成上线检查并发布活动</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 max-w-4xl mx-auto">
+                  {[
+                    { label: '预计发券量', icon: Gift, color: 'text-white' },
+                    { label: '已领取', icon: CheckCircle2, color: 'text-accent-green' },
+                    { label: '已使用', icon: Target, color: 'text-accent-orange' },
+                    { label: '过期未用', icon: Clock, color: 'text-red-400' },
+                    { label: '剩余在途', icon: Activity, color: 'text-accent-yellow' },
+                  ].map((stat, i) => (
+                    <div key={i} className="card p-4 opacity-60">
+                      <div className="flex items-center gap-2 text-ink-400 text-xs mb-2">
+                        <stat.icon className="w-4 h-4" />{stat.label}
+                      </div>
+                      <p className={`text-2xl font-bold ${stat.color}`}>0</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : !dashboard ? (
               <div className="card p-12 text-center">
                 <BarChart3 className="w-16 h-16 text-ink-600 mx-auto mb-4" />
                 <h3 className="font-display text-xl font-semibold text-white mb-2">暂无数据</h3>
@@ -740,13 +817,17 @@ ${script.content}
                     <div className="flex items-center gap-2 text-ink-400 text-xs mb-2">
                       <Gift className="w-4 h-4" />预计发券量
                     </div>
-                    <p className="text-2xl font-bold text-white">{dashboard.totalAllocated.toLocaleString()}</p>
+                    <p className={`text-2xl font-bold text-white transition-all duration-700 ${animateNumbers ? 'animate-pulse scale-105' : ''}`}>
+                      {dashboard.totalAllocated.toLocaleString()}
+                    </p>
                   </div>
                   <div className="card p-4">
                     <div className="flex items-center gap-2 text-ink-400 text-xs mb-2">
                       <CheckCircle2 className="w-4 h-4 text-accent-green" />已领取
                     </div>
-                    <p className="text-2xl font-bold text-accent-green">{dashboard.totalClaimed.toLocaleString()}</p>
+                    <p className={`text-2xl font-bold text-accent-green transition-all duration-700 ${animateNumbers ? 'animate-pulse scale-105' : ''}`}>
+                      {dashboard.totalClaimed.toLocaleString()}
+                    </p>
                     <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
                       <TrendingUp className="w-3 h-3" />领取率 {(dashboard.claimRate * 100).toFixed(1)}%
                     </p>
@@ -755,7 +836,9 @@ ${script.content}
                     <div className="flex items-center gap-2 text-ink-400 text-xs mb-2">
                       <Target className="w-4 h-4 text-accent-orange" />已使用
                     </div>
-                    <p className="text-2xl font-bold text-accent-orange">{dashboard.totalUsed.toLocaleString()}</p>
+                    <p className={`text-2xl font-bold text-accent-orange transition-all duration-700 ${animateNumbers ? 'animate-pulse scale-105' : ''}`}>
+                      {dashboard.totalUsed.toLocaleString()}
+                    </p>
                     <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
                       <TrendingUp className="w-3 h-3" />使用率 {(dashboard.usageRate * 100).toFixed(1)}%
                     </p>
@@ -764,7 +847,9 @@ ${script.content}
                     <div className="flex items-center gap-2 text-ink-400 text-xs mb-2">
                       <Clock className="w-4 h-4 text-red-400" />过期未用
                     </div>
-                    <p className="text-2xl font-bold text-red-400">{dashboard.totalExpired.toLocaleString()}</p>
+                    <p className={`text-2xl font-bold text-red-400 transition-all duration-700 ${animateNumbers ? 'animate-pulse scale-105' : ''}`}>
+                      {dashboard.totalExpired.toLocaleString()}
+                    </p>
                     <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
                       <TrendingDown className="w-3 h-3" />占比 {((dashboard.totalExpired / Math.max(dashboard.totalClaimed, 1)) * 100).toFixed(1)}%
                     </p>
@@ -773,7 +858,9 @@ ${script.content}
                     <div className="flex items-center gap-2 text-ink-400 text-xs mb-2">
                       <Activity className="w-4 h-4 text-accent-yellow" />剩余在途
                     </div>
-                    <p className="text-2xl font-bold text-accent-yellow">{dashboard.totalRemaining.toLocaleString()}</p>
+                    <p className={`text-2xl font-bold text-accent-yellow transition-all duration-700 ${animateNumbers ? 'animate-pulse scale-105' : ''}`}>
+                      {dashboard.totalRemaining.toLocaleString()}
+                    </p>
                     <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
                       <Users className="w-3 h-3" />预计触达 {dashboard.estimatedReach.toLocaleString()} 人
                     </p>
@@ -926,6 +1013,126 @@ ${script.content}
                       );
                     })}
                   </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'activity_log' && (
+          <div className="animate-fade-in">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <div>
+                <h3 className="font-semibold text-white flex items-center gap-2">
+                  <ListOrdered className="w-5 h-5 text-accent-orange" />
+                  活动调整记录
+                </h3>
+                <p className="text-ink-400 text-sm mt-1">所有配置变更、审批操作、版本管理的完整日志</p>
+              </div>
+            </div>
+
+            {changeRecords.length === 0 ? (
+              <div className="card p-12 text-center">
+                <History className="w-16 h-16 text-ink-600 mx-auto mb-4" />
+                <h3 className="font-display text-xl font-semibold text-white mb-2">暂无调整记录</h3>
+                <p className="text-ink-400">修改配置、保存版本或审批后将自动记录</p>
+              </div>
+            ) : (
+              <div className="relative">
+                <div className="absolute left-6 top-2 bottom-2 w-px bg-gradient-to-b from-accent-orange/50 via-ink-700 to-ink-700" />
+                <div className="space-y-1">
+                  {changeRecords.map((record, idx) => {
+                    const recordDate = new Date(record.timestamp).toLocaleDateString('zh-CN');
+                    const prevDate = idx > 0 ? new Date(changeRecords[idx - 1].timestamp).toLocaleDateString('zh-CN') : null;
+                    const showDateDivider = idx === 0 || recordDate !== prevDate;
+                    const showGroupDivider = idx > 0 && idx % 10 === 0;
+
+                    const operationColors: Record<string, string> = {
+                      approve: 'bg-accent-green text-accent-green',
+                      reject: 'bg-red-500 text-red-400',
+                      save: 'bg-blue-500 text-blue-400',
+                      update: 'bg-ink-500 text-ink-400',
+                      publish: 'bg-accent-orange text-accent-orange',
+                      create: 'bg-accent-green text-accent-green',
+                      delete: 'bg-red-500 text-red-400',
+                    };
+
+                    const operationLabels: Record<string, string> = {
+                      approve: '审批通过',
+                      reject: '审批打回',
+                      save: '保存版本',
+                      update: '修改配置',
+                      publish: '发布活动',
+                      create: '创建',
+                      delete: '删除',
+                    };
+
+                    const opColor = operationColors[record.operation] || operationColors.update;
+                    const opLabel = operationLabels[record.operation] || record.operation;
+
+                    return (
+                      <div key={record.recordId}>
+                        {showGroupDivider && (
+                          <div className="py-3 px-4 mb-2 bg-ink-800/30 rounded-card border border-ink-700 text-center">
+                            <span className="text-xs text-ink-500">—— 第 {Math.floor(idx / 10) + 1} 组（{idx + 1 - 10}-{idx + 1} 条） ——</span>
+                          </div>
+                        )}
+                        {showDateDivider && (
+                          <div className="relative pl-16 py-2 mb-1">
+                            <div className="absolute left-0 w-14 text-center">
+                              <span className="text-[10px] px-2 py-0.5 bg-ink-800 text-ink-400 rounded-full border border-ink-700">
+                                {recordDate}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        <div className="relative pl-16 py-3">
+                          <div className={`absolute left-4 top-4 w-4 h-4 rounded-full border-4 border-ink-800 ${opColor.split(' ')[0]}`}>
+                          </div>
+                          <div className="p-4 bg-ink-800/40 rounded-card border border-ink-700 hover:border-ink-600 transition-colors">
+                            <div className="flex items-center justify-between gap-4 flex-wrap mb-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${opColor.split(' ')[0]}/20 ${opColor.split(' ')[1]}`}>
+                                  {opLabel}
+                                </span>
+                                <span className="text-sm text-white font-medium">{record.fieldLabel}</span>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-ink-400">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {new Date(record.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Pencil className="w-3 h-3" />
+                                  {record.operator}
+                                </span>
+                                {record.versionNo && (
+                                  <span className="px-1.5 py-0.5 bg-ink-700 rounded text-ink-300">
+                                    V{record.versionNo}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 text-sm">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-ink-500">从</span>
+                                  <span className="px-2 py-0.5 bg-red-500/10 text-red-400 rounded border border-red-500/30 font-mono text-xs truncate max-w-[200px]">
+                                    {record.oldValue}
+                                  </span>
+                                  <ArrowRight className="w-4 h-4 text-ink-600 flex-shrink-0" />
+                                  <span className="text-ink-500">改为</span>
+                                  <span className="px-2 py-0.5 bg-accent-green/10 text-accent-green rounded border border-accent-green/30 font-mono text-xs truncate max-w-[200px]">
+                                    {record.newValue}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

@@ -16,6 +16,7 @@ import {
   BookOpen,
   AlertCircle,
   Eye,
+  Lock,
 } from 'lucide-react';
 import type { UserRoleType } from '@/types';
 import { userRoles } from '@/mock/couponTemplates';
@@ -23,7 +24,6 @@ import { useCouponStore } from '@/store/useCouponStore';
 import { couponTemplates } from '@/mock/couponTemplates';
 import {
   generatePreviewConfig,
-  formatDate,
   getValidityPeriod,
   getEligibilityDescription,
 } from '@/utils/formatters';
@@ -60,6 +60,11 @@ export default function Preview() {
     if (!previewConfig.showEntry) return;
     setShowClaimed(true);
     setTimeout(() => setShowClaimed(false), 3000);
+  };
+
+  const handleDisabledClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   const handleBack = () => navigate('/config');
@@ -118,6 +123,8 @@ export default function Preview() {
                   const Icon = roleIcons[role];
                   const isSelected = selectedRole === role;
                   const cfg = generatePreviewConfig(config, role);
+                  const audienceRule = config.audienceRules?.find(r => r.role === role);
+                  const limitPerUser = audienceRule?.limitPerUser ?? 1;
 
                   return (
                     <button
@@ -137,7 +144,7 @@ export default function Preview() {
                         <Icon className="w-6 h-6" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <p className="font-semibold">{roleData.label}</p>
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                             cfg.showEntry
@@ -146,10 +153,19 @@ export default function Preview() {
                           }`}>
                             {cfg.showEntry ? '可领' : '不可领'}
                           </span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-ink-700 text-ink-400">
+                            每人限领 {limitPerUser} 份
+                          </span>
                         </div>
                         <p className={`text-sm ${isSelected ? 'text-paper-200' : 'text-ink-500'}`}>
                           {roleData.description}
                         </p>
+                        {!cfg.showEntry && (
+                          <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
+                            <Lock className="w-3 h-3" />
+                            此活动未对{roleData.label}开放
+                          </p>
+                        )}
                       </div>
                     </button>
                   );
@@ -188,7 +204,39 @@ export default function Preview() {
                 <div className="mt-4 pt-4 border-t border-ink-700">
                   <h4 className="text-xs text-ink-500 mb-2 font-medium flex items-center gap-1">
                     <Eye className="w-3.5 h-3.5" />
-                    投放人群规则
+                    当前角色投放规则
+                  </h4>
+                  {(() => {
+                    const currentRule = config.audienceRules.find(r => r.role === selectedRole);
+                    const currentCfg = generatePreviewConfig(config, selectedRole);
+                    if (!currentRule) return null;
+                    return (
+                      <div className="space-y-2">
+                        <div className="text-xs p-2 rounded bg-ink-900/50 flex items-center justify-between">
+                          <span className="text-ink-400">是否可见</span>
+                          <span className={currentCfg.showEntry ? 'text-accent-green font-medium' : 'text-red-400 font-medium'}>
+                            {currentCfg.showEntry ? '✓ 可见' : '✗ 不可见'}
+                          </span>
+                        </div>
+                        <div className="text-xs p-2 rounded bg-ink-900/50 flex items-center justify-between">
+                          <span className="text-ink-400">入口文案</span>
+                          <span className="text-white font-medium">{currentCfg.entryText}</span>
+                        </div>
+                        <div className="text-xs p-2 rounded bg-ink-900/50 flex items-center justify-between">
+                          <span className="text-ink-400">每人限领份数</span>
+                          <span className="text-accent-orange font-medium">{currentRule.limitPerUser} 份</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {config.audienceRules && (
+                <div className="mt-4 pt-4 border-t border-ink-700">
+                  <h4 className="text-xs text-ink-500 mb-2 font-medium flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5" />
+                    全部人群规则
                   </h4>
                   <div className="space-y-1.5">
                     {config.audienceRules.map(rule => {
@@ -363,9 +411,13 @@ export default function Preview() {
                                 {previewConfig.entryText}
                               </button>
                             ) : (
-                              <div className="w-full py-3.5 bg-ink-700/70 text-ink-400 font-medium rounded-card text-center border border-ink-600">
-                                {previewConfig.entryText}
-                              </div>
+                              <button
+                                onClick={handleDisabledClick}
+                                className="w-full py-3.5 bg-ink-700 text-ink-400 font-medium rounded-card text-center border border-ink-600 opacity-60 cursor-not-allowed flex items-center justify-center gap-2"
+                              >
+                                <Lock className="w-4 h-4" />
+                                此活动不对您开放
+                              </button>
                             )}
                           </div>
                         </div>
@@ -434,6 +486,13 @@ export default function Preview() {
                   <X className="w-5 h-5 text-ink-400" />
                 </button>
               </div>
+
+              {!previewConfig.showEntry && (
+                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/40 rounded-card flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                  <span className="text-red-400 font-medium text-sm">您当前身份不可领取此活动</span>
+                </div>
+              )}
 
               <div className="space-y-5">
                 <div className="p-4 bg-gradient-to-r from-accent-orange/15 via-accent-yellow/10 to-accent-orange/15 rounded-card border border-accent-orange/30">
@@ -517,6 +576,7 @@ export default function Preview() {
                         : '✅ 使用限制：可用于多部作品，分别抵扣对应章节'}
                     />
                     <RuleItem text={`适用人群：${getEligibilityDescription(config.type)}`} />
+                    <RuleItem text={`领取限制：每人限领 ${config.audienceRules?.find(r => r.role === selectedRole)?.limitPerUser ?? 1} 份`} />
                     <RuleItem text="券包仅限本人账号使用，不可转让、不可兑现" />
                     <RuleItem text="领取后立即生效，逾期未使用自动失效" />
                     {config.chapterRanges.some(r => r.extraChapterIds.length > 0) && (

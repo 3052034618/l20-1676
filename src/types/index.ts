@@ -209,3 +209,27 @@ export interface VersionDiff {
   newValue: unknown;
   type: 'added' | 'removed' | 'changed';
 }
+
+export type ChangeRecordType =
+  | 'ticket_count'
+  | 'validity'
+  | 'comic_allocations'
+  | 'audience_rules'
+  | 'comics_selected'
+  | 'name'
+  | 'version_saved'
+  | 'published'
+  | 'ended'
+  | 'approval_changed';
+
+export interface ActivityChangeRecord {
+  recordId: string;
+  type: ChangeRecordType;
+  fieldLabel: string;
+  oldValue: string;
+  newValue: string;
+  operator: string;
+  operation: 'create' | 'update' | 'delete' | 'publish' | 'approve' | 'reject' | 'save';
+  timestamp: string;
+  versionNo?: number;
+}

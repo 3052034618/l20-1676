@@ -18,6 +18,8 @@ import type {
   ActivityDashboard,
   ActivityStatus,
   ComicConsumptionStat,
+  ActivityChangeRecord,
+  ChangeRecordType,
 } from '@/types';
 import { couponTemplates } from '@/mock/couponTemplates';
 import { getComicById } from '@/mock/comics';
@@ -26,9 +28,8 @@ import {
   getDefaultDateRange,
   formatDateInput,
   calculateOverallStatus,
-  generateActivitySummary,
 } from '@/utils/formatters';
-import { addDays, format, eachDayOfInterval, parseISO } from 'date-fns';
+import { addDays, format, parseISO, differenceInDays } from 'date-fns';
 
 const DEPARTMENTS: DepartmentType[] = ['editor', 'business', 'customer_service'];
 const ROLES: UserRoleType[] = ['new_user', 'existing_user', 'expired_member'];
@@ -37,6 +38,18 @@ const ROLE_LABELS: Record<UserRoleType, { label: string; defaultText: string }> 
   new_user: { label: '新用户', defaultText: '领取新人礼包' },
   existing_user: { label: '老用户', defaultText: '查看专属福利' },
   expired_member: { label: '会员过期用户', defaultText: '欢迎回来领取回归礼' },
+};
+
+const FIELD_LABELS: Record<string, string> = {
+  ticketCount: '券张数',
+  validFrom: '有效期开始',
+  validTo: '有效期结束',
+  name: '活动名称',
+  singleBookOnly: '单本使用限制',
+  selectedComicIds: '绑定作品',
+  comicAllocations: '作品券数分配',
+  audienceRules: '投放人群规则',
+  estimatedReach: '预计触达用户数',
 };
 
 const createInitialApprovals = (): DepartmentApproval[] => {
@@ -77,6 +90,33 @@ const createInitialConfig = (): CouponPackConfig => {
   };
 };
 
+const formatValueForLog = (val: unknown): string => {
+  if (val === undefined || val === null) return '-';
+  if (typeof val === 'number') return String(val);
+  if (typeof val === 'boolean') return val ? '开启' : '关闭';
+  if (typeof val === 'string') return val || '(空)';
+  if (Array.isArray(val)) {
+    if (val.length === 0) return '(空)';
+    if (typeof val[0] === 'string') return `${val.length} 项`;
+    if ((val[0] as any).comicId !== undefined) {
+      return val
+        .map((a: any) => {
+          const c = getComicById(a.comicId);
+          return `${c?.title || a.comicId}:${a.ticketCount}张`;
+        })
+        .join('、');
+    }
+    if ((val[0] as any).role !== undefined) {
+      return val
+        .filter((r: any) => r.enabled)
+        .map((r: any) => ROLE_LABELS[r.role]?.label || r.role)
+        .join('、') || '(未启用)';
+    }
+    return `${val.length} 项`;
+  }
+  return JSON.stringify(val);
+};
+
 interface CouponState {
   config: CouponPackConfig;
   errors: FormErrors;
@@ -84,6 +124,8 @@ interface CouponState {
   approvals: DepartmentApproval[];
   versions: CouponPackVersion[];
   currentVersionNo: number;
+  changeRecords: ActivityChangeRecord[];
+  lastOperator: string;
 
   setType: (type: CouponPackType) => void;
   updateConfig: (updates: Partial<CouponPackConfig>) => void;
@@ -109,7 +151,18 @@ interface CouponState {
   getLaunchChecklist: () => LaunchCheckItem[];
   publishActivity: () => boolean;
   endActivity: () => void;
-  getDashboard: () => ActivityDashboard | null;
+  getDashboard: (filterRole?: UserRoleType | 'all') => ActivityDashboard | null;
+
+  addChangeRecord: (
+    type: ChangeRecordType,
+    operation: ActivityChangeRecord['operation'],
+    oldValue: unknown,
+    newValue: unknown,
+    operator?: string,
+    versionNo?: number
+  ) => void;
+  clearChangeRecords: () => void;
+  setLastOperator: (name: string) => void;
 }
 
 const autoAllocate = (
@@ -146,6 +199,42 @@ export const useCouponStore = create<CouponState>()(
       approvals: createInitialApprovals(),
       versions: [],
       currentVersionNo: 0,
+      changeRecords: [],
+      lastOperator: '运营专员',
+
+      setLastOperator: (name: string) => {
+        set({ lastOperator: name });
+      },
+
+      addChangeRecord: (
+        type: ChangeRecordType,
+        operation: ActivityChangeRecord['operation'],
+        oldValue: unknown,
+        newValue: unknown,
+        operator?: string,
+        versionNo?: number
+      ) => {
+        const state = get();
+        const record: ActivityChangeRecord = {
+          recordId: `rec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          type,
+          fieldLabel: FIELD_LABELS[type] || type,
+          oldValue: formatValueForLog(oldValue),
+          newValue: formatValueForLog(newValue),
+          operator: operator || state.lastOperator,
+          operation,
+          timestamp: new Date().toISOString(),
+          versionNo,
+        };
+
+        set(state => ({
+          changeRecords: [record, ...state.changeRecords].slice(0, 200),
+        }));
+      },
+
+      clearChangeRecords: () => {
+        set({ changeRecords: [] });
+      },
 
       setType: (type: CouponPackType) => {
         const template = couponTemplates[type];
@@ -164,6 +253,11 @@ export const useCouponStore = create<CouponState>()(
           limitPerUser: 1,
           customDescription: '',
         }));
+
+        const oldType = get().config.type;
+        if (oldType !== type) {
+          get().addChangeRecord('name', 'update', oldType ? couponTemplates[oldType]?.name : '-', template.name);
+        }
 
         set(state => ({
           config: {
@@ -190,6 +284,35 @@ export const useCouponStore = create<CouponState>()(
 
       updateConfig: (updates: Partial<CouponPackConfig>) => {
         const needsReallocation = 'ticketCount' in updates || 'singleBookOnly' in updates;
+        const stateBefore = get().config;
+
+        for (const key of Object.keys(updates)) {
+          const typedKey = key as keyof CouponPackConfig;
+          const oldVal = stateBefore[typedKey];
+          const newVal = updates[typedKey];
+          if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+            let recordType: ChangeRecordType | null = null;
+            if (key === 'ticketCount') recordType = 'ticket_count';
+            else if (key === 'validFrom' || key === 'validTo') recordType = 'validity';
+            else if (key === 'name') recordType = 'name';
+            else if (key === 'comicAllocations') recordType = 'comic_allocations';
+            else if (key === 'audienceRules') recordType = 'audience_rules';
+            else if (key === 'selectedComicIds') recordType = 'comics_selected';
+
+            if (recordType) {
+              get().addChangeRecord(
+                recordType,
+                'update',
+                key === 'validFrom' || key === 'validTo'
+                  ? `${stateBefore.validFrom} ~ ${stateBefore.validTo}`
+                  : oldVal,
+                key === 'validFrom' || key === 'validTo'
+                  ? `${updates.validFrom ?? stateBefore.validFrom} ~ ${updates.validTo ?? stateBefore.validTo}`
+                  : newVal
+              );
+            }
+          }
+        }
 
         set(state => {
           let newState = {
@@ -220,6 +343,7 @@ export const useCouponStore = create<CouponState>()(
       },
 
       toggleComic: (comicId: string) => {
+        const stateBefore = get().config.selectedComicIds;
         set(state => {
           const isSelected = state.config.selectedComicIds.includes(comicId);
           let newSelectedIds: string[];
@@ -247,12 +371,15 @@ export const useCouponStore = create<CouponState>()(
           };
         });
 
+        get().addChangeRecord('comics_selected', 'update', stateBefore, get().config.selectedComicIds);
+
         setTimeout(() => {
           get().recalculateRanges();
         }, 0);
       },
 
       updateComicAllocation: (comicId: string, count: number) => {
+        const before = get().config.comicAllocations;
         set(state => {
           const newAllocations = state.config.comicAllocations.map(a =>
             a.comicId === comicId ? { ...a, ticketCount: Math.max(0, count) } : a
@@ -267,6 +394,11 @@ export const useCouponStore = create<CouponState>()(
             isDirty: true,
           };
         });
+
+        const after = get().config.comicAllocations;
+        if (JSON.stringify(before) !== JSON.stringify(after)) {
+          get().addChangeRecord('comic_allocations', 'update', before, after);
+        }
 
         setTimeout(() => {
           get().recalculateRanges();
@@ -285,12 +417,17 @@ export const useCouponStore = create<CouponState>()(
           config.singleBookOnly
         );
 
+        const before = config.comicAllocations;
         set(state => ({
           config: {
             ...state.config,
             comicAllocations: allocations,
           },
         }));
+
+        if (JSON.stringify(before) !== JSON.stringify(allocations)) {
+          get().addChangeRecord('comic_allocations', 'update', before, allocations);
+        }
 
         setTimeout(() => {
           get().recalculateRanges();
@@ -340,6 +477,13 @@ export const useCouponStore = create<CouponState>()(
         if (!config.audienceRules || config.audienceRules.every(r => !r.enabled)) {
           errors.audience = '请至少启用一个投放人群';
         }
+        if (config.validFrom && config.validTo) {
+          try {
+            if (differenceInDays(parseISO(config.validTo), parseISO(config.validFrom)) < 0) {
+              errors.validTo = '有效期结束日期不能早于开始日期';
+            }
+          } catch {}
+        }
 
         set({ errors });
         return !hasErrors(errors);
@@ -351,6 +495,7 @@ export const useCouponStore = create<CouponState>()(
           errors: {},
           isDirty: false,
           approvals: createInitialApprovals(),
+          changeRecords: [],
         });
       },
 
@@ -359,6 +504,7 @@ export const useCouponStore = create<CouponState>()(
       },
 
       updateApproval: (dept: DepartmentType, status: 'approved' | 'rejected', remark: string, operator: string) => {
+        const before = get().approvals.find(a => a.department === dept);
         set(state => ({
           approvals: state.approvals.map(a =>
             a.department === dept
@@ -372,6 +518,16 @@ export const useCouponStore = create<CouponState>()(
               : a
           ),
         }));
+
+        const deptInfo = DEPARTMENT_LIST.find(d => d.type === dept);
+        get().addChangeRecord(
+          'approval_changed',
+          status === 'approved' ? 'approve' : 'reject',
+          before?.status || 'pending',
+          status,
+          operator
+        );
+        get().setLastOperator(operator);
       },
 
       resetApprovals: () => {
@@ -379,7 +535,7 @@ export const useCouponStore = create<CouponState>()(
       },
 
       saveVersion: (versionName: string, changeLog: string, status: VersionStatus = 'draft') => {
-        const { config, approvals, versions } = get();
+        const { config, approvals, versions, lastOperator } = get();
         const newVersionNo = versions.length + 1;
         const version: CouponPackVersion = {
           versionId: `v-${Date.now()}`,
@@ -389,7 +545,7 @@ export const useCouponStore = create<CouponState>()(
           approvals: JSON.parse(JSON.stringify(approvals)),
           status,
           createdAt: new Date().toISOString(),
-          createdBy: '运营专员',
+          createdBy: lastOperator,
           changeLog,
         };
 
@@ -399,11 +555,20 @@ export const useCouponStore = create<CouponState>()(
           isDirty: false,
         }));
 
+        get().addChangeRecord(
+          'version_saved',
+          'save',
+          '-',
+          `${version.versionName} (V${newVersionNo})`,
+          lastOperator,
+          newVersionNo
+        );
+
         return version;
       },
 
       restoreVersion: (versionId: string) => {
-        const { versions } = get();
+        const { versions, lastOperator } = get();
         const version = versions.find(v => v.versionId === versionId);
         if (!version) return;
 
@@ -412,9 +577,30 @@ export const useCouponStore = create<CouponState>()(
           approvals: JSON.parse(JSON.stringify(version.approvals)),
           isDirty: true,
         });
+
+        get().addChangeRecord(
+          'version_saved',
+          'update',
+          '-',
+          `恢复到 ${version.versionName} (V${version.versionNo})`,
+          lastOperator,
+          version.versionNo
+        );
       },
 
       deleteVersion: (versionId: string) => {
+        const { versions, lastOperator } = get();
+        const version = versions.find(v => v.versionId === versionId);
+        if (version) {
+          get().addChangeRecord(
+            'version_saved',
+            'delete',
+            `${version.versionName} (V${version.versionNo})`,
+            '-',
+            lastOperator,
+            version.versionNo
+          );
+        }
         set(state => ({
           versions: state.versions.filter(v => v.versionId !== versionId),
         }));
@@ -454,6 +640,7 @@ export const useCouponStore = create<CouponState>()(
       },
 
       updateAudienceRule: (role: UserRoleType, updates: Partial<AudienceRule>) => {
+        const before = get().config.audienceRules;
         set(state => ({
           config: {
             ...state.config,
@@ -463,9 +650,15 @@ export const useCouponStore = create<CouponState>()(
           },
           isDirty: true,
         }));
+
+        const after = get().config.audienceRules;
+        if (JSON.stringify(before) !== JSON.stringify(after)) {
+          get().addChangeRecord('audience_rules', 'update', before, after);
+        }
       },
 
       resetAudienceRules: () => {
+        const before = get().config.audienceRules;
         set(state => ({
           config: {
             ...state.config,
@@ -473,11 +666,30 @@ export const useCouponStore = create<CouponState>()(
           },
           isDirty: true,
         }));
+
+        get().addChangeRecord('audience_rules', 'update', before, createInitialAudienceRules());
       },
 
       getLaunchChecklist: (): LaunchCheckItem[] => {
         const { config, approvals, versions, errors } = get();
         const hasError = hasErrors(errors);
+
+        let validityPassed = !!config.validFrom && !!config.validTo;
+        let validityDetail = '';
+        if (config.validFrom && config.validTo) {
+          try {
+            if (differenceInDays(parseISO(config.validTo), parseISO(config.validFrom)) < 0) {
+              validityPassed = false;
+              validityDetail = '⚠️ 结束日期早于开始日期';
+            } else {
+              validityDetail = `${config.validFrom} 至 ${config.validTo}`;
+            }
+          } catch {
+            validityDetail = `${config.validFrom} 至 ${config.validTo}`;
+          }
+        } else {
+          validityDetail = '尚未设置有效期';
+        }
 
         const items: LaunchCheckItem[] = [
           {
@@ -497,11 +709,9 @@ export const useCouponStore = create<CouponState>()(
           {
             key: 'validity',
             label: '有效期设置',
-            description: '配置正确的起止时间',
-            passed: !!config.validFrom && !!config.validTo,
-            detail: config.validFrom && config.validTo
-              ? `${config.validFrom} 至 ${config.validTo}`
-              : '尚未设置有效期',
+            description: '配置正确的起止时间，结束不早于开始',
+            passed: validityPassed,
+            detail: validityDetail,
           },
           {
             key: 'comics',
@@ -558,7 +768,11 @@ export const useCouponStore = create<CouponState>()(
       },
 
       publishActivity: (): boolean => {
-        const checklist = get().getLaunchChecklist();
+        const { validate, getLaunchChecklist, lastOperator } = get();
+        const isValid = validate();
+        if (!isValid) return false;
+
+        const checklist = getLaunchChecklist();
         const allPassed = checklist.every(item => item.passed);
         if (!allPassed) return false;
 
@@ -570,19 +784,37 @@ export const useCouponStore = create<CouponState>()(
           },
           isDirty: true,
         }));
+
+        get().addChangeRecord(
+          'published',
+          'publish',
+          'draft',
+          'published',
+          lastOperator
+        );
+
         return true;
       },
 
       endActivity: () => {
+        const { lastOperator } = get();
         set(state => ({
           config: {
             ...state.config,
             activityStatus: 'ended',
           },
         }));
+
+        get().addChangeRecord(
+          'ended',
+          'delete',
+          'published',
+          'ended',
+          lastOperator
+        );
       },
 
-      getDashboard: (): ActivityDashboard | null => {
+      getDashboard: (filterRole: UserRoleType | 'all' = 'all'): ActivityDashboard | null => {
         const { config } = get();
         if (!config.type) return null;
 
@@ -590,7 +822,24 @@ export const useCouponStore = create<CouponState>()(
           .map(id => getComicById(id))
           .filter(Boolean) as Comic[];
 
-        const totalAllocated = config.ticketCount * config.estimatedReach;
+        const enabledRoles = filterRole === 'all'
+          ? config.audienceRules.filter(r => r.enabled)
+          : config.audienceRules.filter(r => r.enabled && r.role === filterRole);
+
+        const roleRatio: Record<UserRoleType, number> = {
+          new_user: 0.45,
+          existing_user: 0.35,
+          expired_member: 0.2,
+        };
+
+        const totalRatio = enabledRoles.reduce((s, r) => s + roleRatio[r.role], 0);
+        const adjustedReach = filterRole === 'all'
+          ? config.estimatedReach
+          : enabledRoles.length > 0
+            ? Math.round(config.estimatedReach * (roleRatio[filterRole] / totalRatio))
+            : 0;
+
+        const totalAllocated = config.ticketCount * adjustedReach;
         const claimRate = config.activityStatus === 'published' ? 0.68 : 0;
         const totalClaimed = Math.round(totalAllocated * claimRate);
         const totalUsed = Math.round(totalClaimed * 0.72);
@@ -600,7 +849,7 @@ export const useCouponStore = create<CouponState>()(
         const byComic: ComicConsumptionStat[] = comics.map(comic => {
           const alloc = config.comicAllocations.find(a => a.comicId === comic.id);
           const perComicTickets = alloc?.ticketCount ?? 0;
-          const allocated = perComicTickets * config.estimatedReach;
+          const allocated = perComicTickets * adjustedReach;
           const claimed = Math.round(allocated * claimRate);
           return {
             comicId: comic.id,
@@ -613,21 +862,14 @@ export const useCouponStore = create<CouponState>()(
           };
         });
 
-        const byRole = config.audienceRules
-          .filter(r => r.enabled)
-          .map(rule => {
-            const weights: Record<UserRoleType, number> = {
-              new_user: 0.45,
-              existing_user: 0.35,
-              expired_member: 0.2,
-            };
-            const claimed = Math.round(totalClaimed * weights[rule.role]);
-            return {
-              role: rule.role,
-              claimed,
-              used: Math.round(claimed * 0.72),
-            };
-          });
+        const byRole = enabledRoles.map(rule => {
+          const claimed = Math.round(totalClaimed * (roleRatio[rule.role] / totalRatio));
+          return {
+            role: rule.role,
+            claimed,
+            used: Math.round(claimed * 0.72),
+          };
+        });
 
         let startDate = new Date();
         let endDate = new Date();
@@ -652,7 +894,7 @@ export const useCouponStore = create<CouponState>()(
           activityId: config.id,
           activityName: config.name,
           status: config.activityStatus,
-          estimatedReach: config.estimatedReach,
+          estimatedReach: adjustedReach,
           totalAllocated,
           totalClaimed,
           totalUsed,
@@ -669,7 +911,23 @@ export const useCouponStore = create<CouponState>()(
       },
     }),
     {
-      name: 'coupon-config-storage-v3',
+      name: 'coupon-config-storage-v4',
+      partialize: (state) => ({
+        config: state.config,
+        errors: state.errors,
+        isDirty: state.isDirty,
+        approvals: state.approvals,
+        versions: state.versions,
+        currentVersionNo: state.currentVersionNo,
+        changeRecords: state.changeRecords,
+        lastOperator: state.lastOperator,
+      }),
     }
   )
 );
+
+const DEPARTMENT_LIST = [
+  { type: 'editor' as const, label: '主编', description: '审核内容质量与作品范围', icon: 'book-open' },
+  { type: 'business' as const, label: '商务', description: '审核版权与商务条款', icon: 'handshake' },
+  { type: 'customer_service' as const, label: '客服', description: '确认客服话术与应急预案', icon: 'headphones' },
+];
