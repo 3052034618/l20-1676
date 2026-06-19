@@ -1,4 +1,4 @@
-import type { CouponPackConfig, FormErrors, ChapterRange, Comic } from '@/types';
+import type { CouponPackConfig, FormErrors, ChapterRange, Comic, ComicTicketAllocation } from '@/types';
 
 export const validateConfig = (config: CouponPackConfig): FormErrors => {
   const errors: FormErrors = {};
@@ -150,4 +150,61 @@ export const hasExtraInRange = (
   return comic.chapters.some(
     ch => ch.chapterNo >= startChapter && ch.chapterNo <= endChapter && ch.isExtra
   );
+};
+
+export const calculateChapterRangesWithAllocations = (
+  allocations: ComicTicketAllocation[],
+  selectedComics: Comic[]
+): ChapterRange[] => {
+  const ranges: ChapterRange[] = [];
+
+  if (selectedComics.length === 0 || allocations.length === 0) {
+    return ranges;
+  }
+
+  let globalCouponIndex = 1;
+
+  for (const allocation of allocations) {
+    const comic = selectedComics.find(c => c.id === allocation.comicId);
+    if (!comic || allocation.ticketCount <= 0) continue;
+
+    const paidChapters = comic.chapters.filter(ch => !ch.isFree);
+    if (paidChapters.length === 0) continue;
+
+    const ticketsForComic = allocation.ticketCount;
+    const chaptersPerTicket = Math.max(1, Math.ceil(paidChapters.length / ticketsForComic));
+
+    for (let i = 0; i < ticketsForComic; i++) {
+      const startIdx = i * chaptersPerTicket;
+      const endIdx = Math.min((i + 1) * chaptersPerTicket, paidChapters.length) - 1;
+
+      if (startIdx >= paidChapters.length) break;
+
+      const startChapter = paidChapters[startIdx];
+      const endChapter = paidChapters[endIdx];
+      const extraChapters = paidChapters
+        .slice(startIdx, endIdx + 1)
+        .filter(ch => ch.isExtra)
+        .map(ch => ch.id);
+
+      ranges.push({
+        couponIndex: globalCouponIndex,
+        comicId: comic.id,
+        startChapter: startChapter.chapterNo,
+        endChapter: endChapter.chapterNo,
+        extraChapterIds: extraChapters,
+      });
+
+      globalCouponIndex++;
+    }
+  }
+
+  return ranges;
+};
+
+export const getRangesByComic = (
+  ranges: ChapterRange[],
+  comicId: string
+): ChapterRange[] => {
+  return ranges.filter(r => r.comicId === comicId);
 };

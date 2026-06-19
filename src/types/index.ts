@@ -2,6 +2,12 @@ export type CouponPackType = 'new_user' | 'completed' | 'member_return';
 
 export type UserRoleType = 'new_user' | 'existing_user' | 'expired_member';
 
+export type DepartmentType = 'editor' | 'business' | 'customer_service';
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+export type VersionStatus = 'draft' | 'submitted' | 'published';
+
 export interface Chapter {
   id: string;
   chapterNo: number;
@@ -28,6 +34,41 @@ export interface ChapterRange {
   extraChapterIds: string[];
 }
 
+export interface ComicTicketAllocation {
+  comicId: string;
+  ticketCount: number;
+}
+
+export interface DepartmentApproval {
+  department: DepartmentType;
+  status: ApprovalStatus;
+  remark: string;
+  operator: string;
+  updatedAt: string;
+}
+
+export interface ComicCoverage {
+  comicId: string;
+  chapterRanges: ChapterRange[];
+  totalTickets: number;
+  totalChapters: number;
+  minChapter: number;
+  maxChapter: number;
+  hasExtra: boolean;
+}
+
+export interface CouponPackVersion {
+  versionId: string;
+  versionName: string;
+  versionNo: number;
+  config: CouponPackConfig;
+  approvals: DepartmentApproval[];
+  status: VersionStatus;
+  createdAt: string;
+  createdBy: string;
+  changeLog: string;
+}
+
 export interface CouponPackConfig {
   id: string;
   type: CouponPackType | null;
@@ -37,6 +78,7 @@ export interface CouponPackConfig {
   validTo: string;
   singleBookOnly: boolean;
   selectedComicIds: string[];
+  comicAllocations: ComicTicketAllocation[];
   chapterRanges: ChapterRange[];
 }
 
@@ -51,14 +93,18 @@ export interface CouponTemplate {
 export interface ActivitySummary {
   comicList: {
     comic: Comic;
+    ticketCount: number;
     chapterCount: number;
     range: string;
+    ranges: ChapterRange[];
   }[];
   rules: string[];
   customerServiceScripts: {
     title: string;
     content: string;
   }[];
+  approvals: DepartmentApproval[];
+  overallStatus: ApprovalStatus;
 }
 
 export interface PreviewConfig {
@@ -67,6 +113,10 @@ export interface PreviewConfig {
   entryText: string;
   description: string;
   usageTips: string[];
+  comicTitles: string[];
+  ticketCount: number;
+  validity: string;
+  singleBookOnly: boolean;
 }
 
 export interface UserRole {
@@ -75,11 +125,26 @@ export interface UserRole {
   description: string;
 }
 
+export interface DepartmentInfo {
+  type: DepartmentType;
+  label: string;
+  description: string;
+  icon: string;
+}
+
 export interface FormErrors {
   type?: string;
   ticketCount?: string;
   validFrom?: string;
   validTo?: string;
   selectedComicIds?: string;
+  allocations?: string;
   [key: string]: string | undefined;
+}
+
+export interface VersionDiff {
+  field: string;
+  oldValue: unknown;
+  newValue: unknown;
+  type: 'added' | 'removed' | 'changed';
 }
