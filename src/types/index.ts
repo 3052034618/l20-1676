@@ -6,7 +6,64 @@ export type DepartmentType = 'editor' | 'business' | 'customer_service';
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
-export type VersionStatus = 'draft' | 'submitted' | 'published';
+export type VersionStatus = 'draft' | 'submitted' | 'published' | 'archived';
+
+export type ActivityStatus = 'draft' | 'ready' | 'published' | 'ended';
+
+export type LaunchCheckItemKey =
+  | 'ticketCount'
+  | 'allocation'
+  | 'validity'
+  | 'comics'
+  | 'approvals'
+  | 'version'
+  | 'audience'
+  | 'name';
+
+export interface LaunchCheckItem {
+  key: LaunchCheckItemKey;
+  label: string;
+  description: string;
+  passed: boolean;
+  detail?: string;
+}
+
+export interface AudienceRule {
+  role: UserRoleType;
+  enabled: boolean;
+  entryText: string;
+  limitPerUser: number;
+  customDescription?: string;
+}
+
+export interface ComicConsumptionStat {
+  comicId: string;
+  comicTitle: string;
+  allocated: number;
+  claimed: number;
+  used: number;
+  expired: number;
+  remaining: number;
+}
+
+export interface ActivityDashboard {
+  activityId: string;
+  activityName: string;
+  status: ActivityStatus;
+  estimatedReach: number;
+  totalAllocated: number;
+  totalClaimed: number;
+  totalUsed: number;
+  totalExpired: number;
+  totalRemaining: number;
+  claimRate: number;
+  usageRate: number;
+  startDate: string;
+  endDate: string;
+  dailyClaims: { date: string; count: number }[];
+  byComic: ComicConsumptionStat[];
+  byRole: { role: UserRoleType; claimed: number; used: number }[];
+}
 
 export interface Chapter {
   id: string;
@@ -80,6 +137,10 @@ export interface CouponPackConfig {
   selectedComicIds: string[];
   comicAllocations: ComicTicketAllocation[];
   chapterRanges: ChapterRange[];
+  audienceRules: AudienceRule[];
+  activityStatus: ActivityStatus;
+  publishedAt?: string;
+  estimatedReach: number;
 }
 
 export interface CouponTemplate {

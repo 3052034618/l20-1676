@@ -15,6 +15,7 @@ import {
   Ticket,
   BookOpen,
   AlertCircle,
+  Eye,
 } from 'lucide-react';
 import type { UserRoleType } from '@/types';
 import { userRoles } from '@/mock/couponTemplates';
@@ -27,6 +28,7 @@ import {
   getEligibilityDescription,
 } from '@/utils/formatters';
 import { getComicById } from '@/mock/comics';
+import { getActivityStatusLabel, getActivityStatusBadgeClass } from '@/utils/formatters';
 
 const roleIcons = {
   new_user: UserPlus,
@@ -67,7 +69,12 @@ export default function Preview() {
     <div className="space-y-8 animate-fade-in">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-2xl font-bold text-white">发放预览</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="font-display text-2xl font-bold text-white">发放预览</h1>
+            <span className={`text-sm px-2.5 py-0.5 rounded-full border ${getActivityStatusBadgeClass(config.activityStatus)}`}>
+              {getActivityStatusLabel(config.activityStatus)}
+            </span>
+          </div>
           <p className="text-ink-400 mt-1">
             模拟不同用户角色看到的活动效果 · 文案完全跟随当前配置
           </p>
@@ -176,6 +183,41 @@ export default function Preview() {
                   value={getEligibilityDescription(config.type)}
                 />
               </div>
+
+              {config.audienceRules && (
+                <div className="mt-4 pt-4 border-t border-ink-700">
+                  <h4 className="text-xs text-ink-500 mb-2 font-medium flex items-center gap-1">
+                    <Eye className="w-3.5 h-3.5" />
+                    投放人群规则
+                  </h4>
+                  <div className="space-y-1.5">
+                    {config.audienceRules.map(rule => {
+                      const roleInfo = userRoles[rule.role];
+                      const isCurrent = rule.role === selectedRole;
+                      return (
+                        <div
+                          key={rule.role}
+                          className={`text-xs p-2 rounded flex items-center justify-between ${
+                            isCurrent ? 'bg-accent-orange/15 border border-accent-orange/30' : 'bg-ink-900/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={rule.enabled ? 'text-accent-green' : 'text-ink-500'}>
+                              {rule.enabled ? '●' : '○'}
+                            </span>
+                            <span className={isCurrent ? 'text-white font-medium' : 'text-ink-300'}>
+                              {roleInfo.label}
+                            </span>
+                          </div>
+                          <span className="text-ink-400 text-[10px]">
+                            {rule.enabled ? `限领 ${rule.limitPerUser} 份` : '不可见'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {selectedComics.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-ink-700">

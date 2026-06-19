@@ -5,7 +5,9 @@ import TypeSelector from './components/TypeSelector';
 import BasicForm from './components/BasicForm';
 import ComicSelector from './components/ComicSelector';
 import ChapterRangePreview from './components/ChapterRangePreview';
+import AudienceRuleEditor from './components/AudienceRuleEditor';
 import { hasErrors } from '@/utils/validators';
+import { getActivityStatusLabel, getActivityStatusBadgeClass } from '@/utils/formatters';
 
 export default function CouponConfig() {
   const navigate = useNavigate();
@@ -24,7 +26,14 @@ export default function CouponConfig() {
     <div className="space-y-8 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold text-white">券包配置</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="font-display text-2xl font-bold text-white">券包配置</h1>
+            {config.type && (
+              <span className={`text-sm px-2.5 py-0.5 rounded-full border ${getActivityStatusBadgeClass(config.activityStatus)}`}>
+                {getActivityStatusLabel(config.activityStatus)}
+              </span>
+            )}
+          </div>
           <p className="text-ink-400 mt-1">配置券包类型、参数和适用作品</p>
         </div>
         <div className="flex items-center gap-3">
@@ -54,6 +63,10 @@ export default function CouponConfig() {
           <>
             <section className="card p-6">
               <BasicForm />
+            </section>
+
+            <section className="card p-6">
+              <AudienceRuleEditor />
             </section>
 
             <section className="card p-6">

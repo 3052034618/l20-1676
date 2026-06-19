@@ -10,6 +10,9 @@ import type {
   ApprovalStatus,
   DepartmentInfo,
   ComicTicketAllocation,
+  AudienceRule,
+  ActivityStatus,
+  LaunchCheckItem,
 } from '@/types';
 import { couponTemplates, userRoles } from '@/mock/couponTemplates';
 import { getComicById } from '@/mock/comics';
@@ -209,8 +212,14 @@ export const generatePreviewConfig = (
     .filter(Boolean) as Comic[];
   const comicTitles = comics.map(c => c.title);
 
-  let showEntry = false;
-  let entryText = '';
+  const audienceRule = config.audienceRules?.find((r: AudienceRule) => r.role === role);
+  const isEnabled = audienceRule?.enabled ?? false;
+  const customEntryText = audienceRule?.entryText;
+  const limitPerUser = audienceRule?.limitPerUser ?? 1;
+  const customDescription = audienceRule?.customDescription;
+
+  let showEntry = isEnabled;
+  let entryText = customEntryText || '参与活动';
   let description = '';
   const usageTips: string[] = [];
 
@@ -220,43 +229,48 @@ export const generatePreviewConfig = (
     .map(c => `《${c.title}》${allocMap.get(c.id) || 0}张`)
     .join('、');
 
-  switch (role) {
-    case 'new_user':
-      showEntry = config.type === 'new_user' || config.type === 'completed';
-      if (showEntry) {
-        entryText = '🎁 新人专属福利 立即领取';
-        description = `欢迎新朋友！${config.name || template?.name || '漫画券包'}包含 ${config.ticketCount} 张阅读券，\n${comicAllocationText}\n助你畅快追更！`;
-      } else {
-        entryText = '💎 升级会员享更多福利';
-        description = '当前活动仅适用于对应活动类型用户，可升级会员解锁更多内容';
+  if (isEnabled) {
+    if (customDescription) {
+      description = customDescription;
+    } else {
+      switch (role) {
+        case 'new_user':
+          description = `欢迎新朋友！${config.name || template?.name || '漫画券包'}包含 ${config.ticketCount} 张阅读券，\n${comicAllocationText || ''}\n助你畅快追更！`;
+          break;
+        case 'existing_user':
+          description = `感谢您的支持！${config.name || template?.name || '专属福利'}包含 ${config.ticketCount} 张阅读券，\n${comicAllocationText || ''}\n尽情阅读吧！`;
+          break;
+        case 'expired_member':
+          description = `老朋友好久不见！${config.name || template?.name || '回流礼包'}包含 ${config.ticketCount} 张阅读券，\n${comicAllocationText || ''}\n回来继续追更吧~`;
+          break;
       }
-      break;
-    case 'existing_user':
-      showEntry = config.type === 'completed';
-      if (showEntry) {
-        entryText = '📚 完结篇补券 限时领取';
-        description = `${config.name || template?.name || '完结篇福利'}包含 ${config.ticketCount} 张阅读券，\n${comicAllocationText}\n一口气看完大结局！`;
-      } else {
-        entryText = '👀 关注更多活动预告';
+    }
+  } else {
+    switch (role) {
+      case 'new_user':
+        entryText = '� 升级会员享更多福利';
+        description = '当前活动仅适用于指定用户群体，可升级会员解锁更多内容';
+        break;
+      case 'existing_user':
+        entryText = '� 关注更多活动预告';
         description = '当前暂无匹配的活动，请关注平台后续活动通知';
-      }
-      break;
-    case 'expired_member':
-      showEntry = config.type === 'member_return' || config.type === 'completed';
-      if (showEntry) {
-        entryText = '🔄 专属回流礼包 等你回来';
-        description = `老朋友好久不见！${config.name || template?.name || '回流礼包'}包含 ${config.ticketCount} 张阅读券，\n${comicAllocationText}\n回来继续追更吧~`;
-      } else {
+        break;
+      case 'expired_member':
         entryText = '💎 立即续订会员';
         description = '成为VIP会员，解锁全站漫画无广告畅读';
-      }
-      break;
+        break;
+    }
   }
 
   if (showEntry) {
     usageTips.push(`📅 有效期：${getValidityPeriod(config.validFrom, config.validTo)}`);
-    usageTips.push(`🎫 券数：共 ${config.ticketCount} 张`);
-    usageTips.push(`📖 适用：${comicTitles.join('、') || '指定作品'}`);
+    usageTips.push(`🎫 券数：每人限领 ${limitPerUser} 份，每份 ${config.ticketCount} 张`);
+    if (comics.length > 0) {
+      usageTips.push(`📖 适用作品：${comicTitles.join('、')}`);
+    }
+    if (comicAllocationText) {
+      usageTips.push(`📊 作品分配：${comicAllocationText}`);
+    }
     if (config.singleBookOnly) {
       usageTips.push('⚠️ 使用限制：仅限选择其中一部作品使用');
     }
@@ -279,6 +293,52 @@ export const generatePreviewConfig = (
     validity: getValidityPeriod(config.validFrom, config.validTo),
     singleBookOnly: config.singleBookOnly,
   };
+};
+
+export const getActivityStatusLabel = (status: ActivityStatus): string => {
+  switch (status) {
+    case 'draft': return '草稿中';
+    case 'ready': return '待发布';
+    case 'published': return '进行中';
+    case 'ended': return '已结束';
+    default: return '未知';
+  }
+};
+
+export const getActivityStatusColor = (status: ActivityStatus): string => {
+  switch (status) {
+    case 'draft': return 'text-gray-400';
+    case 'ready': return 'text-accent-yellow';
+    case 'published': return 'text-accent-green';
+    case 'ended': return 'text-gray-500';
+    default: return 'text-gray-400';
+  }
+};
+
+export const getActivityStatusBadgeClass = (status: ActivityStatus): string => {
+  switch (status) {
+    case 'draft': return 'bg-gray-700/60 text-gray-300 border-gray-600';
+    case 'ready': return 'bg-yellow-500/10 text-accent-yellow border-yellow-500/30';
+    case 'published': return 'bg-green-500/10 text-accent-green border-green-500/30';
+    case 'ended': return 'bg-gray-700/60 text-gray-400 border-gray-600';
+    default: return 'bg-gray-700/60 text-gray-300 border-gray-600';
+  }
+};
+
+export const getLaunchChecklistSummary = (items: LaunchCheckItem[]): {
+  passed: number;
+  total: number;
+  allPassed: boolean;
+  label: string;
+} => {
+  const passed = items.filter(i => i.passed).length;
+  const total = items.length;
+  const allPassed = passed === total;
+  let label = '';
+  if (allPassed) label = `✅ ${passed}/${total} 检查项已全部通过，可发布`;
+  else if (passed === 0) label = `⚠️ ${total} 项待检查`;
+  else label = `📋 ${passed}/${total} 项已通过，尚有 ${total - passed} 项待完成`;
+  return { passed, total, allPassed, label };
 };
 
 export const calculateOverallStatus = (approvals: DepartmentApproval[]): ApprovalStatus => {

@@ -6,7 +6,8 @@ import {
   Download, Gift, AlertTriangle, Save, RotateCcw, History, GitCompare,
   Trash2, Clock, XCircle, CheckCircle2, CircleDot, BookOpenCheck,
   Handshake, Headphones, Pencil, Plus, Minus, ChevronDown, ChevronUp,
-  Eye, PanelRightClose,
+  Eye, PanelRightClose, Rocket, BarChart3, Users, TrendingUp, TrendingDown,
+  Activity, Target,
 } from 'lucide-react';
 import { useCouponStore } from '@/store/useCouponStore';
 import {
@@ -19,11 +20,15 @@ import {
   DEPARTMENT_LIST,
   formatDateTime,
   formatFieldForDiff,
+  getActivityStatusLabel,
+  getActivityStatusBadgeClass,
+  getActivityStatusColor,
+  getLaunchChecklistSummary,
 } from '@/utils/formatters';
 import { couponTemplates } from '@/mock/couponTemplates';
 import type { ActivitySummary, DepartmentType, ApprovalStatus, CouponPackVersion, VersionDiff } from '@/types';
 
-type TabType = 'books' | 'rules' | 'scripts' | 'approvals' | 'versions';
+type TabType = 'books' | 'rules' | 'scripts' | 'approvals' | 'launch' | 'dashboard' | 'versions';
 
 export default function Summary() {
   const navigate = useNavigate();
@@ -38,6 +43,10 @@ export default function Summary() {
     getVersionDiff,
     updateApproval,
     resetApprovals,
+    getLaunchChecklist,
+    publishActivity,
+    endActivity,
+    getDashboard,
   } = useCouponStore();
 
   const [activeTab, setActiveTab] = useState<TabType>('books');
@@ -51,6 +60,8 @@ export default function Summary() {
   const [showDiffModal, setShowDiffModal] = useState(false);
   const [diffV1, setDiffV1] = useState<string>('');
   const [diffV2, setDiffV2] = useState<string>('');
+
+  const [publishToast, setPublishToast] = useState<string | null>(null);
 
   const template = config.type ? couponTemplates[config.type] : null;
 
@@ -97,6 +108,16 @@ ${script.content}
     }
   };
 
+  const handlePublish = () => {
+    const success = publishActivity();
+    if (!success) {
+      const checklist = getLaunchChecklist();
+      const failed = checklist.filter(i => !i.passed).length;
+      setPublishToast(`还有 ${failed} 项未通过，请先完成检查`);
+      setTimeout(() => setPublishToast(null), 3000);
+    }
+  };
+
   const handleSaveVersion = () => {
     const name = saveName.trim() || `版本 ${versions.length + 1}`;
     saveVersion(name, saveLog.trim() || '保存当前配置');
@@ -132,11 +153,17 @@ ${script.content}
   const handleBack = () => navigate('/preview');
   const handleToConfig = () => navigate('/config');
 
+  const launchChecklist = useMemo(() => getLaunchChecklist(), [getLaunchChecklist]);
+  const launchSummary = useMemo(() => getLaunchChecklistSummary(launchChecklist), [launchChecklist]);
+  const dashboard = useMemo(() => getDashboard(), [getDashboard]);
+
   const tabs = [
     { id: 'books' as TabType, label: '覆盖书单', icon: BookOpen },
     { id: 'rules' as TabType, label: '领取规则', icon: ListChecks },
     { id: 'scripts' as TabType, label: '客服话术', icon: MessageCircle },
     { id: 'approvals' as TabType, label: '多部门确认', icon: BookOpenCheck, badge: summary?.overallStatus },
+    { id: 'launch' as TabType, label: '上线检查', icon: Rocket, badge: launchSummary.allPassed ? 'approved' as ApprovalStatus : launchSummary.passed > 0 ? 'pending' as ApprovalStatus : undefined },
+    { id: 'dashboard' as TabType, label: '数据看板', icon: BarChart3 },
     { id: 'versions' as TabType, label: '版本历史', icon: History, badgeNum: versions.length },
   ];
 
@@ -166,31 +193,48 @@ ${script.content}
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-white">活动摘要</h1>
-          <p className="text-ink-400 mt-1">确认覆盖范围、规则话术，多部门审批、版本留痕</p>
+          <div>
+            <h1 className="font-display text-2xl font-bold text-white">活动摘要</h1>
+            <p className="text-ink-400 mt-1">确认覆盖范围、规则话术，多部门审批、版本留痕</p>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button onClick={handleBack} className="btn-secondary flex items-center gap-2">
+              <ArrowLeft className="w-4 h-4" />
+              返回预览
+            </button>
+            <button
+              onClick={() => setShowSaveModal(true)}
+              className="btn-secondary flex items-center gap-2"
+            >
+              <Save className="w-4 h-4" />
+              保存版本
+            </button>
+            <button
+              onClick={handlePublish}
+              disabled={!launchSummary.allPassed}
+              className={`flex items-center gap-2 disabled:opacity-50 ${launchSummary.allPassed ? 'btn-secondary border-accent-green/50 text-accent-green hover:bg-accent-green/20' : 'btn-secondary'}`}
+            >
+              <Rocket className="w-4 h-4" />
+              发布活动
+            </button>
+            <button onClick={handleCopyAll} className="btn-primary flex items-center gap-2">
+              {copiedIndex === -1 ? (
+                <><Check className="w-4 h-4 text-ink-950" />已复制</>
+              ) : (
+                <><Copy className="w-4 h-4" />复制摘要</>
+              )}
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={handleBack} className="btn-secondary flex items-center gap-2">
-            <ArrowLeft className="w-4 h-4" />
-            返回预览
-          </button>
-          <button
-            onClick={() => setShowSaveModal(true)}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <Save className="w-4 h-4" />
-            保存版本
-          </button>
-          <button onClick={handleCopyAll} className="btn-primary flex items-center gap-2">
-            {copiedIndex === -1 ? (
-              <><Check className="w-4 h-4 text-ink-950" />已复制</>
-            ) : (
-              <><Copy className="w-4 h-4" />复制摘要</>
-            )}
-          </button>
-        </div>
-      </div>
+
+        {publishToast && (
+          <div className="fixed top-6 right-6 z-50 animate-fade-in">
+            <div className="flex items-center gap-2 px-4 py-3 bg-red-500/15 border border-red-500/40 rounded-card text-red-400">
+              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+              <span className="font-medium">{publishToast}</span>
+            </div>
+          </div>
+        )}
 
       <div className="card p-6 space-y-6">
         <div className="flex flex-wrap items-center gap-6 p-4 bg-gradient-to-r from-accent-orange/10 to-accent-yellow/10 rounded-card border border-accent-orange/20">
@@ -202,6 +246,9 @@ ${script.content}
               <h2 className="font-display text-xl font-bold text-white truncate">
                 {config.name || template?.name}
               </h2>
+              <span className={`text-[11px] px-2 py-0.5 rounded-full border ${getActivityStatusBadgeClass(config.activityStatus)}`}>
+                {getActivityStatusLabel(config.activityStatus)}
+              </span>
               <span className="text-xs text-ink-400">
                 {getOverallStatusLabel(summary.overallStatus)}
               </span>
@@ -554,6 +601,334 @@ ${script.content}
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {activeTab === 'launch' && (
+          <div className="animate-fade-in">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <h3 className="font-semibold text-white flex items-center gap-2">
+                <Rocket className="w-5 h-5 text-accent-orange" />
+                上线前检查清单
+              </h3>
+              <span className={`text-xs px-2.5 py-1 rounded-full border ${getActivityStatusBadgeClass(config.activityStatus)}`}>
+                当前状态：{getActivityStatusLabel(config.activityStatus)}
+              </span>
+            </div>
+
+            <div className={`mb-6 p-5 rounded-card border flex items-center gap-4 flex-wrap ${
+              launchSummary.allPassed
+                ? 'bg-accent-green/10 border-accent-green/30'
+                : launchSummary.passed > 0
+                ? 'bg-accent-yellow/10 border-accent-yellow/30'
+                : 'bg-ink-800/50 border-ink-700'
+            }`}>
+              <div className={`w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0 ${
+                launchSummary.allPassed ? 'bg-accent-green/20' :
+                launchSummary.passed > 0 ? 'bg-accent-yellow/20' : 'bg-ink-700'
+              }`}>
+                {launchSummary.allPassed ? (
+                  <CheckCircle2 className="w-7 h-7 text-accent-green" />
+                ) : launchSummary.passed > 0 ? (
+                  <Activity className="w-7 h-7 text-accent-yellow" />
+                ) : (
+                  <AlertTriangle className="w-7 h-7 text-ink-400" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-lg font-bold ${launchSummary.allPassed ? 'text-accent-green' : launchSummary.passed > 0 ? 'text-accent-yellow' : 'text-white'}`}>
+                  {launchSummary.label}
+                </p>
+                <div className="mt-3 w-full max-w-md h-2.5 bg-ink-900 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      launchSummary.allPassed
+                        ? 'bg-gradient-to-r from-accent-green to-accent-green'
+                        : launchSummary.passed > 0
+                        ? 'bg-gradient-to-r from-accent-orange to-accent-yellow'
+                        : 'bg-ink-600'
+                    }`}
+                    style={{ width: `${launchSummary.total > 0 ? (launchSummary.passed / launchSummary.total) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handlePublish}
+                disabled={!launchSummary.allPassed}
+                className={`px-6 py-3 rounded-card font-semibold flex items-center gap-2 transition-all ${
+                  launchSummary.allPassed
+                    ? 'bg-gradient-to-r from-accent-orange to-accent-yellow text-ink-950 hover:shadow-lg hover:shadow-accent-orange/30'
+                    : 'bg-ink-700 text-ink-500 cursor-not-allowed'
+                }`}
+              >
+                <Rocket className="w-5 h-5" />
+                立即发布活动
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {launchChecklist.map((item) => (
+                <div
+                  key={item.key}
+                  className={`p-5 rounded-card border transition-all ${
+                    item.passed
+                      ? 'bg-ink-800/50 border-accent-green/40'
+                      : 'bg-ink-800/30 border-ink-700 hover:border-ink-600'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className={`font-semibold ${item.passed ? 'text-white' : 'text-paper-200'}`}>
+                          {item.label}
+                        </h4>
+                      </div>
+                      <p className="text-ink-400 text-sm mt-1">{item.description}</p>
+                      {item.detail && (
+                        <p className={`text-xs mt-3 ${item.passed ? 'text-accent-green' : 'text-ink-500'}`}>
+                          {item.detail}
+                        </p>
+                      )}
+                    </div>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                      item.passed ? 'bg-accent-green/20' : 'bg-ink-700'
+                    }`}>
+                      {item.passed ? (
+                        <CheckCircle2 className="w-6 h-6 text-accent-green" />
+                      ) : (
+                        <XCircle className="w-6 h-6 text-ink-500" />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'dashboard' && (
+          <div className="animate-fade-in">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <h3 className="font-semibold text-white flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-accent-orange" />
+                活动数据看板
+              </h3>
+              {config.activityStatus === 'published' && (
+                <button
+                  onClick={() => {
+                    if (confirm('确定要提前结束活动吗？结束后用户将无法继续领取。')) {
+                      endActivity();
+                    }
+                  }}
+                  className="btn-secondary text-sm flex items-center gap-1.5 text-red-400 border-red-500/30 hover:bg-red-500/10"
+                >
+                  <XCircle className="w-4 h-4" />结束活动
+                </button>
+              )}
+            </div>
+
+            {!dashboard ? (
+              <div className="card p-12 text-center">
+                <BarChart3 className="w-16 h-16 text-ink-600 mx-auto mb-4" />
+                <h3 className="font-display text-xl font-semibold text-white mb-2">暂无数据</h3>
+                <p className="text-ink-400">请先配置活动并发布后查看数据</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  <div className="card p-4">
+                    <div className="flex items-center gap-2 text-ink-400 text-xs mb-2">
+                      <Gift className="w-4 h-4" />预计发券量
+                    </div>
+                    <p className="text-2xl font-bold text-white">{dashboard.totalAllocated.toLocaleString()}</p>
+                  </div>
+                  <div className="card p-4">
+                    <div className="flex items-center gap-2 text-ink-400 text-xs mb-2">
+                      <CheckCircle2 className="w-4 h-4 text-accent-green" />已领取
+                    </div>
+                    <p className="text-2xl font-bold text-accent-green">{dashboard.totalClaimed.toLocaleString()}</p>
+                    <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
+                      <TrendingUp className="w-3 h-3" />领取率 {(dashboard.claimRate * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                  <div className="card p-4">
+                    <div className="flex items-center gap-2 text-ink-400 text-xs mb-2">
+                      <Target className="w-4 h-4 text-accent-orange" />已使用
+                    </div>
+                    <p className="text-2xl font-bold text-accent-orange">{dashboard.totalUsed.toLocaleString()}</p>
+                    <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
+                      <TrendingUp className="w-3 h-3" />使用率 {(dashboard.usageRate * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                  <div className="card p-4">
+                    <div className="flex items-center gap-2 text-ink-400 text-xs mb-2">
+                      <Clock className="w-4 h-4 text-red-400" />过期未用
+                    </div>
+                    <p className="text-2xl font-bold text-red-400">{dashboard.totalExpired.toLocaleString()}</p>
+                    <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
+                      <TrendingDown className="w-3 h-3" />占比 {((dashboard.totalExpired / Math.max(dashboard.totalClaimed, 1)) * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                  <div className="card p-4">
+                    <div className="flex items-center gap-2 text-ink-400 text-xs mb-2">
+                      <Activity className="w-4 h-4 text-accent-yellow" />剩余在途
+                    </div>
+                    <p className="text-2xl font-bold text-accent-yellow">{dashboard.totalRemaining.toLocaleString()}</p>
+                    <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
+                      <Users className="w-3 h-3" />预计触达 {dashboard.estimatedReach.toLocaleString()} 人
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="lg:col-span-2 card p-5">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="font-semibold text-white flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4 text-accent-orange" />每日领取趋势
+                      </h4>
+                      <div className="flex items-center gap-4 text-xs">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-3 h-3 rounded-sm bg-gradient-to-t from-accent-orange to-accent-yellow" />领取量
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-48 flex items-end gap-1 px-2">
+                      {(() => {
+                        const maxCount = Math.max(...dashboard.dailyClaims.map(d => d.count), 1);
+                        return dashboard.dailyClaims.map((day, i) => {
+                          const height = Math.max((day.count / maxCount) * 100, 4);
+                          return (
+                            <div key={i} className="flex-1 flex flex-col items-center justify-end min-w-0 gap-1 group">
+                              <span className="text-[10px] text-ink-400 opacity-0 group-hover:opacity-100 transition-opacity font-medium">
+                                {day.count.toLocaleString()}
+                              </span>
+                              <div
+                                className="w-full bg-gradient-to-t from-accent-orange to-accent-yellow rounded-t-md transition-all hover:from-accent-orange/80 hover:to-accent-yellow/80"
+                                style={{ height: `${height}%`, minHeight: '4px' }}
+                              />
+                              <span className="text-[10px] text-ink-500 truncate w-full text-center">
+                                {day.date}
+                              </span>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+
+                  <div className="card p-5">
+                    <h4 className="font-semibold text-white flex items-center gap-2 mb-4">
+                      <Target className="w-4 h-4 text-accent-orange" />活动指标
+                    </h4>
+                    <div className="space-y-4">
+                      <div className="p-3 bg-ink-800/50 rounded-card">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm text-ink-400">领取率</span>
+                          <span className="text-accent-green font-bold">{(dashboard.claimRate * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-ink-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-accent-green to-accent-green rounded-full"
+                            style={{ width: `${dashboard.claimRate * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="p-3 bg-ink-800/50 rounded-card">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm text-ink-400">使用率</span>
+                          <span className="text-accent-orange font-bold">{(dashboard.usageRate * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-ink-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-accent-orange to-accent-yellow rounded-full"
+                            style={{ width: `${dashboard.usageRate * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="p-3 bg-ink-800/50 rounded-card">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-ink-400 flex items-center gap-1.5">
+                            <Users className="w-4 h-4" />预计触达人数
+                          </span>
+                          <span className="text-white font-bold">{dashboard.estimatedReach.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card p-5">
+                  <h4 className="font-semibold text-white flex items-center gap-2 mb-4">
+                    <BookOpen className="w-4 h-4 text-accent-orange" />按作品消耗明细
+                  </h4>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[700px]">
+                      <thead>
+                        <tr className="border-b border-ink-700">
+                          <th className="text-left py-3 px-4 text-ink-400 font-medium text-sm">作品名称</th>
+                          <th className="text-right py-3 px-4 text-ink-400 font-medium text-sm">已分配</th>
+                          <th className="text-right py-3 px-4 text-ink-400 font-medium text-sm">已领取</th>
+                          <th className="text-right py-3 px-4 text-ink-400 font-medium text-sm">已使用</th>
+                          <th className="text-right py-3 px-4 text-ink-400 font-medium text-sm">过期</th>
+                          <th className="text-right py-3 px-4 text-ink-400 font-medium text-sm">剩余</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dashboard.byComic.map((stat) => (
+                          <tr key={stat.comicId} className="border-b border-ink-800 hover:bg-ink-800/30 transition-colors last:border-b-0">
+                            <td className="py-3 px-4 text-white font-medium">{stat.comicTitle}</td>
+                            <td className="py-3 px-4 text-right text-ink-300">{stat.allocated.toLocaleString()}</td>
+                            <td className="py-3 px-4 text-right text-accent-green font-medium">{stat.claimed.toLocaleString()}</td>
+                            <td className="py-3 px-4 text-right text-accent-orange font-medium">{stat.used.toLocaleString()}</td>
+                            <td className="py-3 px-4 text-right text-red-400">{stat.expired.toLocaleString()}</td>
+                            <td className="py-3 px-4 text-right text-accent-yellow font-medium">{stat.remaining.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-white flex items-center gap-2 mb-4">
+                    <Users className="w-4 h-4 text-accent-orange" />按人群消耗
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {dashboard.byRole.map((role) => {
+                      const roleLabels: Record<string, { label: string; desc: string }> = {
+                        new_user: { label: '新用户', desc: '注册7天内' },
+                        existing_user: { label: '老用户', desc: '活跃用户' },
+                        expired_member: { label: '会员过期', desc: '回流用户' },
+                      };
+                      const info = roleLabels[role.role] || { label: role.role, desc: '' };
+                      return (
+                        <div key={role.role} className="card p-5">
+                          <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 rounded-full bg-accent-orange/20 flex items-center justify-center">
+                              <Users className="w-5 h-5 text-accent-orange" />
+                            </div>
+                            <div>
+                              <p className="text-white font-semibold">{info.label}</p>
+                              <p className="text-xs text-ink-500">{info.desc}</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="p-3 bg-ink-800/50 rounded-card text-center">
+                              <p className="text-[11px] text-ink-400 mb-1">已领取</p>
+                              <p className="text-lg font-bold text-accent-green">{role.claimed.toLocaleString()}</p>
+                            </div>
+                            <div className="p-3 bg-ink-800/50 rounded-card text-center">
+                              <p className="text-[11px] text-ink-400 mb-1">已使用</p>
+                              <p className="text-lg font-bold text-accent-orange">{role.used.toLocaleString()}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

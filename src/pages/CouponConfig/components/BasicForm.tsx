@@ -1,4 +1,4 @@
-import { Minus, Plus, Calendar, Ticket, BookLock } from 'lucide-react';
+import { Minus, Plus, Calendar, Ticket, BookLock, Users } from 'lucide-react';
 import { useCouponStore } from '@/store/useCouponStore';
 import { formatDate } from '@/utils/formatters';
 
@@ -161,6 +161,27 @@ export default function BasicForm() {
               </p>
             </div>
           )}
+
+          <div>
+            <label className="form-label">
+              <span className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-accent-orange" />
+                预计触达用户
+              </span>
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min={100}
+                value={config.estimatedReach}
+                onChange={(e) => handleInputChange('estimatedReach', Math.max(100, parseInt(e.target.value) || 100))}
+                disabled={isDisabled}
+                className="input-field text-sm disabled:opacity-50 disabled:cursor-not-allowed flex-1"
+              />
+              <span className="text-sm text-ink-400">人</span>
+            </div>
+            <p className="mt-1.5 text-xs text-ink-500">用于计算预计发券量和活动效果预估数据</p>
+          </div>
         </div>
       </div>
     </div>
