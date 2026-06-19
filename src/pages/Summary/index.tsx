@@ -7,7 +7,7 @@ import {
   Trash2, Clock, XCircle, CheckCircle2, CircleDot, BookOpenCheck,
   Handshake, Headphones, Pencil, Plus,
   Eye, Rocket, BarChart3, Users, TrendingUp, TrendingDown,
-  Activity, Target, ListOrdered,
+  Activity, Target, ListOrdered, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { useCouponStore } from '@/store/useCouponStore';
 import {
@@ -18,6 +18,7 @@ import {
   getApprovalStatusLabel,
   getApprovalStatusColor,
   DEPARTMENT_LIST,
+  CHANNEL_LIST,
   formatDateTime,
   formatFieldForDiff,
   getActivityStatusLabel,
@@ -25,7 +26,7 @@ import {
   getLaunchChecklistSummary,
 } from '@/utils/formatters';
 import { couponTemplates } from '@/mock/couponTemplates';
-import type { ActivitySummary, DepartmentType, ApprovalStatus, CouponPackVersion, VersionDiff, UserRoleType } from '@/types';
+import type { ActivitySummary, DepartmentType, ApprovalStatus, CouponPackVersion, VersionDiff, UserRoleType, ChannelType, ActivityChangeRecord } from '@/types';
 
 type TabType = 'books' | 'rules' | 'scripts' | 'approvals' | 'launch' | 'dashboard' | 'versions' | 'activity_log';
 
@@ -65,6 +66,8 @@ export default function Summary() {
 
   const [publishToast, setPublishToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [filterRole, setFilterRole] = useState<UserRoleType | 'all'>('all');
+  const [filterChannel, setFilterChannel] = useState<ChannelType | 'all'>('all');
+  const [expandedSnapshotId, setExpandedSnapshotId] = useState<string | null>(null);
   const [animateNumbers, setAnimateNumbers] = useState(false);
 
   const template = config.type ? couponTemplates[config.type] : null;
@@ -171,9 +174,10 @@ ${script.content}
   const handleBack = () => navigate('/preview');
   const handleToConfig = () => navigate('/config');
 
-  const launchChecklist = useMemo(() => getLaunchChecklist(), [getLaunchChecklist, config, approvals, versions]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { errors } = useCouponStore();
+  const launchChecklist = useMemo(() => getLaunchChecklist(), [getLaunchChecklist, config, approvals, versions, errors]);
   const launchSummary = useMemo(() => getLaunchChecklistSummary(launchChecklist), [launchChecklist]);
-  const dashboard = useMemo(() => getDashboard(filterRole), [getDashboard, filterRole, config]); // eslint-disable-line react-hooks/exhaustive-deps
+  const dashboard = useMemo(() => getDashboard(filterRole, filterChannel), [getDashboard, filterRole, filterChannel, config]);
 
   const tabs = [
     { id: 'books' as TabType, label: '覆盖书单', icon: BookOpen },
@@ -746,8 +750,24 @@ ${script.content}
                 <BarChart3 className="w-5 h-5 text-accent-orange" />
                 活动数据看板
               </h3>
+              {config.activityStatus === 'published' && (
+                <button
+                  onClick={() => {
+                    if (confirm('确定要提前结束活动吗？结束后用户将无法继续领取。')) {
+                      endActivity();
+                    }
+                  }}
+                  className="btn-secondary text-sm flex items-center gap-1.5 text-red-400 border-red-500/30 hover:bg-red-500/10"
+                >
+                  <XCircle className="w-4 h-4" />结束活动
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-3 mb-6">
               <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center gap-1 bg-ink-800/50 rounded-card p-1 border border-ink-700">
+                <span className="text-sm text-ink-400 w-16 flex-shrink-0">人群筛选：</span>
+                <div className="flex items-center gap-1 bg-ink-800/50 rounded-card p-1 border border-ink-700 flex-wrap">
                   {[
                     { key: 'all' as const, label: '全部人群' },
                     { key: 'new_user' as const, label: '新用户' },
@@ -767,20 +787,63 @@ ${script.content}
                     </button>
                   ))}
                 </div>
-                {config.activityStatus === 'published' && (
-                  <button
-                    onClick={() => {
-                      if (confirm('确定要提前结束活动吗？结束后用户将无法继续领取。')) {
-                        endActivity();
-                      }
-                    }}
-                    className="btn-secondary text-sm flex items-center gap-1.5 text-red-400 border-red-500/30 hover:bg-red-500/10"
-                  >
-                    <XCircle className="w-4 h-4" />结束活动
-                  </button>
-                )}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm text-ink-400 w-16 flex-shrink-0">渠道筛选：</span>
+                <div className="flex items-center gap-1 bg-ink-800/50 rounded-card p-1 border border-ink-700 flex-wrap">
+                  {[
+                    { key: 'all' as const, label: '全部渠道' },
+                    { key: 'inapp_popup' as const, label: '站内弹窗' },
+                    { key: 'home_banner' as const, label: '首页 Banner' },
+                    { key: 'bookshelf_card' as const, label: '书架卡片' },
+                  ].map((f) => (
+                    <button
+                      key={f.key}
+                      onClick={() => setFilterChannel(f.key)}
+                      className={`px-3 py-1.5 rounded text-sm font-medium transition-all ${
+                        filterChannel === f.key
+                          ? 'bg-accent-orange text-ink-950'
+                          : 'text-ink-400 hover:text-white hover:bg-ink-700'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
+
+            {dashboard && (
+              <div className="mb-6 p-4 bg-accent-yellow/10 border border-accent-yellow/30 rounded-card">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-4 h-4 text-accent-yellow flex-shrink-0" />
+                  <span className="text-sm text-accent-yellow font-medium">数据校验提示</span>
+                </div>
+                <p className="text-sm text-paper-200">
+                  当前查看：
+                  <span className="text-accent-orange font-semibold">
+                    {filterRole === 'all' ? '全部人群' : { new_user: '新用户', existing_user: '老用户', expired_member: '会员过期用户' }[filterRole]}
+                  </span>
+                  {' + '}
+                  <span className="text-accent-orange font-semibold">
+                    {filterChannel === 'all' ? '全部渠道' : CHANNEL_LIST.find(c => c.type === filterChannel)?.label || filterChannel}
+                  </span>
+                </p>
+                <p className="text-xs text-ink-400 mt-1">
+                  验证公式：预计触达人数 = 总预计触达 × 人群权重 × 渠道权重
+                  （当前：{dashboard.estimatedReach.toLocaleString()} = {config.estimatedReach.toLocaleString()} × {(() => {
+                    const ROLE_WEIGHTS = { new_user: 0.45, existing_user: 0.35, expired_member: 0.20 };
+                    const totalRoleWeight = filterRole === 'all'
+                      ? config.audienceRules.filter(r => r.enabled).reduce((s, r) => s + ROLE_WEIGHTS[r.role], 0)
+                      : ROLE_WEIGHTS[filterRole];
+                    const totalChannelWeight = filterChannel === 'all'
+                      ? CHANNEL_LIST.reduce((s, c) => s + c.weight, 0)
+                      : CHANNEL_LIST.find(c => c.type === filterChannel)?.weight || 0;
+                    return `${totalRoleWeight} × ${totalChannelWeight}`;
+                  })()}）
+                </p>
+              </div>
+            )}
 
             {config.activityStatus !== 'published' ? (
               <div className="card p-12 text-center">
@@ -864,6 +927,55 @@ ${script.content}
                     <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
                       <Users className="w-3 h-3" />预计触达 {dashboard.estimatedReach.toLocaleString()} 人
                     </p>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-white flex items-center gap-2 mb-4">
+                    <Target className="w-4 h-4 text-accent-orange" />按渠道消耗卡片组
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {dashboard.byChannel.map((channel) => (
+                      <div key={channel.channel} className="card p-5">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-full bg-accent-orange/20 flex items-center justify-center">
+                            <Target className="w-5 h-5 text-accent-orange" />
+                          </div>
+                          <div>
+                            <p className="text-white font-semibold">{channel.label}</p>
+                            <p className="text-xs text-ink-500">{CHANNEL_LIST.find(c => c.type === channel.channel)?.description || ''}</p>
+                          </div>
+                        </div>
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-ink-400">分配券数</span>
+                            <span className="text-white font-semibold">{channel.allocated.toLocaleString()}</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="p-2 bg-ink-800/50 rounded-card text-center">
+                              <p className="text-[10px] text-ink-400 mb-1">已领取</p>
+                              <p className="text-sm font-bold text-accent-green">{channel.claimed.toLocaleString()}</p>
+                            </div>
+                            <div className="p-2 bg-ink-800/50 rounded-card text-center">
+                              <p className="text-[10px] text-ink-400 mb-1">已使用</p>
+                              <p className="text-sm font-bold text-accent-orange">{channel.used.toLocaleString()}</p>
+                            </div>
+                            <div className="p-2 bg-ink-800/50 rounded-card text-center">
+                              <p className="text-[10px] text-ink-400 mb-1">过期</p>
+                              <p className="text-sm font-bold text-red-400">{channel.expired.toLocaleString()}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-ink-400">领取率</span>
+                            <span className="text-accent-green font-semibold">{(channel.claimRate * 100).toFixed(1)}%</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-ink-400">使用率</span>
+                            <span className="text-accent-orange font-semibold">{(channel.usageRate * 100).toFixed(1)}%</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -1069,6 +1181,8 @@ ${script.content}
 
                     const opColor = operationColors[record.operation] || operationColors.update;
                     const opLabel = operationLabels[record.operation] || record.operation;
+                    const hasSnapshot = !!record.configSnapshot;
+                    const isExpanded = expandedSnapshotId === record.recordId;
 
                     return (
                       <div key={record.recordId}>
@@ -1089,13 +1203,16 @@ ${script.content}
                         <div className="relative pl-16 py-3">
                           <div className={`absolute left-4 top-4 w-4 h-4 rounded-full border-4 border-ink-800 ${opColor.split(' ')[0]}`}>
                           </div>
-                          <div className="p-4 bg-ink-800/40 rounded-card border border-ink-700 hover:border-ink-600 transition-colors">
+                          <div className={`p-4 rounded-card border transition-colors ${hasSnapshot ? 'bg-ink-800/60 border-ink-600' : 'bg-ink-800/40 border-ink-700 hover:border-ink-600'}`}>
                             <div className="flex items-center justify-between gap-4 flex-wrap mb-2">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${opColor.split(' ')[0]}/20 ${opColor.split(' ')[1]}`}>
                                   {opLabel}
                                 </span>
-                                <span className="text-sm text-white font-medium">{record.fieldLabel}</span>
+                                <span className={`text-sm ${hasSnapshot ? 'text-white font-bold' : 'text-white font-medium'}`}>
+                                  {record.fieldLabel}
+                                  {hasSnapshot && <CheckCircle2 className="w-3 h-3 inline ml-1 text-accent-green" />}
+                                </span>
                               </div>
                               <div className="flex items-center gap-3 text-xs text-ink-400">
                                 <span className="flex items-center gap-1">
@@ -1111,23 +1228,109 @@ ${script.content}
                                     V{record.versionNo}
                                   </span>
                                 )}
+                                {hasSnapshot && (
+                                  <button
+                                    onClick={() => setExpandedSnapshotId(isExpanded ? null : record.recordId)}
+                                    className="flex items-center gap-1 px-2 py-1 bg-ink-700 hover:bg-ink-600 rounded text-ink-300 hover:text-white transition-colors"
+                                  >
+                                    {isExpanded ? (
+                                      <><ChevronDown className="w-3 h-3" />收起快照</>
+                                    ) : (
+                                      <><ChevronRight className="w-3 h-3" />展开查看快照</>
+                                    )}
+                                  </button>
+                                )}
                               </div>
                             </div>
                             <div className="flex items-center gap-3 text-sm">
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-ink-500">从</span>
-                                  <span className="px-2 py-0.5 bg-red-500/10 text-red-400 rounded border border-red-500/30 font-mono text-xs truncate max-w-[200px]">
-                                    {record.oldValue}
-                                  </span>
-                                  <ArrowRight className="w-4 h-4 text-ink-600 flex-shrink-0" />
-                                  <span className="text-ink-500">改为</span>
-                                  <span className="px-2 py-0.5 bg-accent-green/10 text-accent-green rounded border border-accent-green/30 font-mono text-xs truncate max-w-[200px]">
-                                    {record.newValue}
-                                  </span>
-                                </div>
+                                {record.operation === 'update' && record.oldValue !== record.newValue ? (
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-ink-500">从</span>
+                                    <span className="px-2 py-0.5 bg-red-500/10 text-red-400 rounded border border-red-500/30 font-mono text-xs truncate max-w-[200px]">
+                                      {record.oldValue}
+                                    </span>
+                                    <ArrowRight className="w-4 h-4 text-ink-600 flex-shrink-0" />
+                                    <span className="text-ink-500">改为</span>
+                                    <span className="px-2 py-0.5 bg-accent-green/10 text-accent-green rounded border border-accent-green/30 font-mono text-xs truncate max-w-[200px]">
+                                      {record.newValue}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="text-paper-200">
+                                    {record.operation === 'approve' && (
+                                      <span>
+                                        <span className="text-ink-500">状态：</span>
+                                        <span className="text-red-400 line-through">{record.oldValue}</span>
+                                        <ArrowRight className="w-3 h-3 mx-1 text-ink-500 inline" />
+                                        <span className="text-accent-green font-medium">{record.newValue}</span>
+                                      </span>
+                                    )}
+                                    {record.operation === 'reject' && (
+                                      <span>
+                                        <span className="text-ink-500">状态：</span>
+                                        <span className="text-accent-green line-through">{record.oldValue}</span>
+                                        <ArrowRight className="w-3 h-3 mx-1 text-ink-500 inline" />
+                                        <span className="text-red-400 font-medium">{record.newValue}</span>
+                                      </span>
+                                    )}
+                                    {(record.operation === 'save' || record.operation === 'publish' || record.operation === 'delete') && (
+                                      <span className="text-paper-200">{record.newValue}</span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             </div>
+
+                            {isExpanded && hasSnapshot && record.configSnapshot && (
+                              <div className="mt-4 pt-4 border-t border-ink-700 space-y-4">
+                                <h5 className="text-sm font-semibold text-accent-orange flex items-center gap-2">
+                                  <FileText className="w-4 h-4" />配置快照详情
+                                </h5>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="p-3 bg-ink-900/50 rounded-card">
+                                    <p className="text-[10px] text-ink-500 mb-1">券张数</p>
+                                    <p className="text-white font-semibold">{record.configSnapshot.ticketCount} 张</p>
+                                  </div>
+                                  <div className="p-3 bg-ink-900/50 rounded-card">
+                                    <p className="text-[10px] text-ink-500 mb-1">有效期</p>
+                                    <p className="text-white text-sm">
+                                      {getValidityPeriod(record.configSnapshot.validFrom, record.configSnapshot.validTo)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-ink-400 mb-2">作品分配表</p>
+                                  <div className="space-y-1">
+                                    {record.configSnapshot.comicAllocations.map((alloc, i) => (
+                                      <div key={i} className="flex items-center justify-between text-sm p-2 bg-ink-900/30 rounded">
+                                        <span className="text-white truncate max-w-[200px]">{alloc.comicTitle}</span>
+                                        <span className="text-accent-orange font-semibold">{alloc.ticketCount} 张</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-ink-400 mb-2">人群规则表</p>
+                                  <div className="space-y-1">
+                                    {record.configSnapshot.audienceRules.map((rule, i) => (
+                                      <div key={i} className="flex items-center justify-between text-sm p-2 bg-ink-900/30 rounded">
+                                        <div className="flex items-center gap-2">
+                                          <span className={rule.enabled ? 'text-accent-green' : 'text-ink-500'}>
+                                            {rule.enabled ? '✓' : '✗'}
+                                          </span>
+                                          <span className="text-white">{rule.role}</span>
+                                        </div>
+                                        <div className="text-right">
+                                          <span className="text-ink-400 text-xs mr-2">「{rule.entryText}」</span>
+                                          <span className="text-accent-yellow text-xs">限领 {rule.limitPerUser} 份</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>

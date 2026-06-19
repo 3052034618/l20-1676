@@ -20,6 +20,8 @@ import type {
   ComicConsumptionStat,
   ActivityChangeRecord,
   ChangeRecordType,
+  ChannelType,
+  ChannelConsumptionStat,
 } from '@/types';
 import { couponTemplates } from '@/mock/couponTemplates';
 import { getComicById } from '@/mock/comics';
@@ -28,6 +30,7 @@ import {
   getDefaultDateRange,
   formatDateInput,
   calculateOverallStatus,
+  CHANNEL_LIST,
 } from '@/utils/formatters';
 import { addDays, format, parseISO, differenceInDays } from 'date-fns';
 
@@ -38,6 +41,12 @@ const ROLE_LABELS: Record<UserRoleType, { label: string; defaultText: string }> 
   new_user: { label: '新用户', defaultText: '领取新人礼包' },
   existing_user: { label: '老用户', defaultText: '查看专属福利' },
   expired_member: { label: '会员过期用户', defaultText: '欢迎回来领取回归礼' },
+};
+
+const ROLE_WEIGHTS: Record<UserRoleType, number> = {
+  new_user: 0.45,
+  existing_user: 0.35,
+  expired_member: 0.20,
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -74,7 +83,7 @@ const createInitialAudienceRules = (): AudienceRule[] => {
 
 const createInitialConfig = (): CouponPackConfig => {
   return {
-    id: `pack-${Date.now()}`,
+    id: 'pack-' + Date.now(),
     type: null,
     name: '',
     ticketCount: 5,
@@ -97,12 +106,12 @@ const formatValueForLog = (val: unknown): string => {
   if (typeof val === 'string') return val || '(空)';
   if (Array.isArray(val)) {
     if (val.length === 0) return '(空)';
-    if (typeof val[0] === 'string') return `${val.length} 项`;
+    if (typeof val[0] === 'string') return val.length + ' 项';
     if ((val[0] as any).comicId !== undefined) {
       return val
         .map((a: any) => {
           const c = getComicById(a.comicId);
-          return `${c?.title || a.comicId}:${a.ticketCount}张`;
+          return (c?.title || a.comicId) + ':' + a.ticketCount + '张';
         })
         .join('、');
     }
@@ -112,9 +121,34 @@ const formatValueForLog = (val: unknown): string => {
         .map((r: any) => ROLE_LABELS[r.role]?.label || r.role)
         .join('、') || '(未启用)';
     }
-    return `${val.length} 项`;
+    return val.length + ' 项';
   }
   return JSON.stringify(val);
+};
+
+const createConfigSnapshot = (config: CouponPackConfig): ActivityChangeRecord['configSnapshot'] => {
+  const comics = config.selectedComicIds
+    .map(id => getComicById(id))
+    .filter(Boolean) as Comic[];
+  const allocMap = new Map<string, number>();
+  config.comicAllocations.forEach(a => allocMap.set(a.comicId, a.ticketCount));
+
+  return {
+    name: config.name,
+    ticketCount: config.ticketCount,
+    validFrom: config.validFrom,
+    validTo: config.validTo,
+    comicAllocations: comics.map(c => ({
+      comicTitle: c.title,
+      ticketCount: allocMap.get(c.id) || 0,
+    })),
+    audienceRules: config.audienceRules.map(r => ({
+      role: ROLE_LABELS[r.role]?.label || r.role,
+      enabled: r.enabled,
+      entryText: r.entryText,
+      limitPerUser: r.limitPerUser,
+    })),
+  };
 };
 
 interface CouponState {
@@ -151,7 +185,7 @@ interface CouponState {
   getLaunchChecklist: () => LaunchCheckItem[];
   publishActivity: () => boolean;
   endActivity: () => void;
-  getDashboard: (filterRole?: UserRoleType | 'all') => ActivityDashboard | null;
+  getDashboard: (filterRole?: UserRoleType | 'all', filterChannel?: ChannelType | 'all') => (ActivityDashboard & { byChannel: ChannelConsumptionStat[] }) | null;
 
   addChangeRecord: (
     type: ChangeRecordType,
@@ -159,7 +193,8 @@ interface CouponState {
     oldValue: unknown,
     newValue: unknown,
     operator?: string,
-    versionNo?: number
+    versionNo?: number,
+    includeSnapshot?: boolean,
   ) => void;
   clearChangeRecords: () => void;
   setLastOperator: (name: string) => void;
@@ -212,11 +247,12 @@ export const useCouponStore = create<CouponState>()(
         oldValue: unknown,
         newValue: unknown,
         operator?: string,
-        versionNo?: number
+        versionNo?: number,
+        includeSnapshot?: boolean,
       ) => {
         const state = get();
         const record: ActivityChangeRecord = {
-          recordId: `rec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          recordId: 'rec-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
           type,
           fieldLabel: FIELD_LABELS[type] || type,
           oldValue: formatValueForLog(oldValue),
@@ -226,6 +262,10 @@ export const useCouponStore = create<CouponState>()(
           timestamp: new Date().toISOString(),
           versionNo,
         };
+
+        if (includeSnapshot) {
+          record.configSnapshot = createConfigSnapshot(state.config);
+        }
 
         set(state => ({
           changeRecords: [record, ...state.changeRecords].slice(0, 200),
@@ -304,10 +344,10 @@ export const useCouponStore = create<CouponState>()(
                 recordType,
                 'update',
                 key === 'validFrom' || key === 'validTo'
-                  ? `${stateBefore.validFrom} ~ ${stateBefore.validTo}`
+                  ? stateBefore.validFrom + ' ~ ' + stateBefore.validTo
                   : oldVal,
                 key === 'validFrom' || key === 'validTo'
-                  ? `${updates.validFrom ?? stateBefore.validFrom} ~ ${updates.validTo ?? stateBefore.validTo}`
+                  ? (updates.validFrom ?? stateBefore.validFrom) + ' ~ ' + (updates.validTo ?? stateBefore.validTo)
                   : newVal
               );
             }
@@ -469,7 +509,7 @@ export const useCouponStore = create<CouponState>()(
 
         const allocatedTotal = config.comicAllocations.reduce((sum, a) => sum + a.ticketCount, 0);
         if (config.selectedComicIds.length > 0 && allocatedTotal !== config.ticketCount) {
-          errors.allocations = `分配的券总数(${allocatedTotal})与总券数(${config.ticketCount})不一致`;
+          errors.allocations = '分配的券总数(' + allocatedTotal + ')与总券数(' + config.ticketCount + ')不一致';
         }
         if (config.comicAllocations.some(a => a.ticketCount <= 0)) {
           errors.allocations = '请为每部作品分配至少1张券';
@@ -519,7 +559,6 @@ export const useCouponStore = create<CouponState>()(
           ),
         }));
 
-        const deptInfo = DEPARTMENT_LIST.find(d => d.type === dept);
         get().addChangeRecord(
           'approval_changed',
           status === 'approved' ? 'approve' : 'reject',
@@ -538,8 +577,8 @@ export const useCouponStore = create<CouponState>()(
         const { config, approvals, versions, lastOperator } = get();
         const newVersionNo = versions.length + 1;
         const version: CouponPackVersion = {
-          versionId: `v-${Date.now()}`,
-          versionName: versionName || `版本 ${newVersionNo}`,
+          versionId: 'v-' + Date.now(),
+          versionName: versionName || '版本 ' + newVersionNo,
           versionNo: newVersionNo,
           config: JSON.parse(JSON.stringify(config)),
           approvals: JSON.parse(JSON.stringify(approvals)),
@@ -559,9 +598,10 @@ export const useCouponStore = create<CouponState>()(
           'version_saved',
           'save',
           '-',
-          `${version.versionName} (V${newVersionNo})`,
+          version.versionName + ' (V' + newVersionNo + ')',
           lastOperator,
-          newVersionNo
+          newVersionNo,
+          true,
         );
 
         return version;
@@ -582,9 +622,10 @@ export const useCouponStore = create<CouponState>()(
           'version_saved',
           'update',
           '-',
-          `恢复到 ${version.versionName} (V${version.versionNo})`,
+          '恢复到 ' + version.versionName + ' (V' + version.versionNo + ')',
           lastOperator,
-          version.versionNo
+          version.versionNo,
+          true,
         );
       },
 
@@ -595,7 +636,7 @@ export const useCouponStore = create<CouponState>()(
           get().addChangeRecord(
             'version_saved',
             'delete',
-            `${version.versionName} (V${version.versionNo})`,
+            version.versionName + ' (V' + version.versionNo + ')',
             '-',
             lastOperator,
             version.versionNo
@@ -682,14 +723,14 @@ export const useCouponStore = create<CouponState>()(
               validityPassed = false;
               validityDetail = '⚠️ 结束日期早于开始日期';
             } else {
-              validityDetail = `${config.validFrom} 至 ${config.validTo}`;
+              validityDetail = config.validFrom + ' 至 ' + config.validTo;
             }
           } catch {
-            validityDetail = `${config.validFrom} 至 ${config.validTo}`;
+              validityDetail = config.validFrom + ' 至 ' + config.validTo;
+            }
+          } else {
+            validityDetail = '尚未设置有效期';
           }
-        } else {
-          validityDetail = '尚未设置有效期';
-        }
 
         const items: LaunchCheckItem[] = [
           {
@@ -704,7 +745,7 @@ export const useCouponStore = create<CouponState>()(
             label: '券数量配置',
             description: '总券数必须大于0',
             passed: config.ticketCount > 0,
-            detail: `当前配置：${config.ticketCount} 张`,
+            detail: '当前配置：' + config.ticketCount + ' 张',
           },
           {
             key: 'validity',
@@ -718,7 +759,7 @@ export const useCouponStore = create<CouponState>()(
             label: '作品绑定',
             description: '至少绑定1部漫画作品',
             passed: config.selectedComicIds.length > 0,
-            detail: `已绑定 ${config.selectedComicIds.length} 部作品`,
+            detail: '已绑定 ' + config.selectedComicIds.length + ' 部作品',
           },
           {
             key: 'allocation',
@@ -733,7 +774,7 @@ export const useCouponStore = create<CouponState>()(
             detail: (() => {
               const total = config.comicAllocations.reduce((s, a) => s + a.ticketCount, 0);
               if (config.selectedComicIds.length === 0) return '尚未绑定作品';
-              return `分配合计 ${total} 张 / 总券数 ${config.ticketCount} 张`;
+              return '分配合计 ' + total + ' 张 / 总券数 ' + config.ticketCount + ' 张';
             })(),
           },
           {
@@ -741,7 +782,7 @@ export const useCouponStore = create<CouponState>()(
             label: '投放人群',
             description: '至少启用一个用户群体',
             passed: config.audienceRules.some(r => r.enabled),
-            detail: `已启用 ${config.audienceRules.filter(r => r.enabled).length} / 3 类人群`,
+            detail: '已启用 ' + config.audienceRules.filter(r => r.enabled).length + ' / 3 类人群',
           },
           {
             key: 'approvals',
@@ -750,7 +791,7 @@ export const useCouponStore = create<CouponState>()(
             passed: calculateOverallStatus(approvals) === 'approved',
             detail: (() => {
               const approved = approvals.filter(a => a.status === 'approved').length;
-              return `${approved} / ${approvals.length} 部门已通过`;
+              return approved + ' / ' + approvals.length + ' 部门已通过';
             })(),
           },
           {
@@ -759,7 +800,7 @@ export const useCouponStore = create<CouponState>()(
             description: '至少保存一个版本快照',
             passed: versions.length > 0,
             detail: versions.length > 0
-              ? `已保存 ${versions.length} 个历史版本`
+              ? '已保存 ' + versions.length + ' 个历史版本'
               : '尚未保存版本',
           },
         ];
@@ -790,7 +831,9 @@ export const useCouponStore = create<CouponState>()(
           'publish',
           'draft',
           'published',
-          lastOperator
+          lastOperator,
+          undefined,
+          true,
         );
 
         return true;
@@ -810,11 +853,14 @@ export const useCouponStore = create<CouponState>()(
           'delete',
           'published',
           'ended',
-          lastOperator
+          lastOperator,
+          undefined,
+          true,
         );
       },
 
-      getDashboard: (filterRole: UserRoleType | 'all' = 'all'): ActivityDashboard | null => {
+      getDashboard: (
+        filterRole: UserRoleType | 'all' = 'all', filterChannel: ChannelType | 'all' = 'all'): ActivityDashboard & { byChannel: ChannelConsumptionStat[] } | null => {
         const { config } = get();
         if (!config.type) return null;
 
@@ -826,18 +872,20 @@ export const useCouponStore = create<CouponState>()(
           ? config.audienceRules.filter(r => r.enabled)
           : config.audienceRules.filter(r => r.enabled && r.role === filterRole);
 
-        const roleRatio: Record<UserRoleType, number> = {
-          new_user: 0.45,
-          existing_user: 0.35,
-          expired_member: 0.2,
-        };
+        if (enabledRoles.length === 0) {
+          return null;
+        }
 
-        const totalRatio = enabledRoles.reduce((s, r) => s + roleRatio[r.role], 0);
-        const adjustedReach = filterRole === 'all'
-          ? config.estimatedReach
-          : enabledRoles.length > 0
-            ? Math.round(config.estimatedReach * (roleRatio[filterRole] / totalRatio))
-            : 0;
+        const totalRoleWeight = enabledRoles.reduce((s, r) => s + ROLE_WEIGHTS[r.role], 0);
+
+        const channels = filterChannel === 'all'
+          ? CHANNEL_LIST
+          : CHANNEL_LIST.filter(c => c.type === filterChannel);
+        const totalChannelWeight = channels.reduce((s, c) => s + c.weight, 0);
+
+        const combinedWeight = totalRoleWeight * totalChannelWeight;
+
+        const adjustedReach = Math.round(config.estimatedReach * combinedWeight);
 
         const totalAllocated = config.ticketCount * adjustedReach;
         const claimRate = config.activityStatus === 'published' ? 0.68 : 0;
@@ -863,11 +911,31 @@ export const useCouponStore = create<CouponState>()(
         });
 
         const byRole = enabledRoles.map(rule => {
-          const claimed = Math.round(totalClaimed * (roleRatio[rule.role] / totalRatio));
+          const roleRatio = ROLE_WEIGHTS[rule.role] / totalRoleWeight;
+          const roleTotalReach = Math.round(adjustedReach * roleRatio);
+          const roleAllocated = config.ticketCount * roleTotalReach;
+          const roleClaimed = Math.round(roleAllocated * claimRate * roleRatio);
           return {
             role: rule.role,
-            claimed,
-            used: Math.round(claimed * 0.72),
+            claimed: roleClaimed,
+            used: Math.round(roleClaimed * 0.72),
+          };
+        });
+
+        const byChannel: ChannelConsumptionStat[] = channels.map(channel => {
+          const channelRatio = channel.weight / totalChannelWeight;
+          const channelTotalReach = Math.round(adjustedReach * channelRatio);
+          const channelAllocated = config.ticketCount * channelTotalReach;
+          const channelClaimed = Math.round(channelAllocated * claimRate * channelRatio);
+          return {
+            channel: channel.type,
+            label: channel.label,
+            allocated: channelAllocated,
+            claimed: channelClaimed,
+            used: Math.round(channelClaimed * 0.72),
+            expired: Math.round(channelClaimed * 0.08),
+            claimRate,
+            usageRate: channelClaimed > 0 ? Math.round(channelClaimed * 0.72) / channelClaimed : 0,
           };
         });
 
@@ -876,7 +944,7 @@ export const useCouponStore = create<CouponState>()(
         try {
           if (config.validFrom) startDate = parseISO(config.validFrom);
           if (config.validTo) endDate = parseISO(config.validTo);
-        } catch {}
+        } catch { }
 
         const days = Math.min(30, Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / 86400000)));
         const dailyClaims = Array.from({ length: days }, (_, i) => {
@@ -907,11 +975,12 @@ export const useCouponStore = create<CouponState>()(
           dailyClaims,
           byComic,
           byRole,
+          byChannel,
         };
       },
     }),
     {
-      name: 'coupon-config-storage-v4',
+      name: 'coupon-config-storage-v5',
       partialize: (state) => ({
         config: state.config,
         errors: state.errors,
@@ -931,3 +1000,4 @@ const DEPARTMENT_LIST = [
   { type: 'business' as const, label: '商务', description: '审核版权与商务条款', icon: 'handshake' },
   { type: 'customer_service' as const, label: '客服', description: '确认客服话术与应急预案', icon: 'headphones' },
 ];
+

@@ -222,6 +222,15 @@ export type ChangeRecordType =
   | 'ended'
   | 'approval_changed';
 
+export type ChannelType = 'inapp_popup' | 'home_banner' | 'bookshelf_card';
+
+export interface ChannelInfo {
+  type: ChannelType;
+  label: string;
+  description: string;
+  weight: number;
+}
+
 export interface ActivityChangeRecord {
   recordId: string;
   type: ChangeRecordType;
@@ -232,4 +241,23 @@ export interface ActivityChangeRecord {
   operation: 'create' | 'update' | 'delete' | 'publish' | 'approve' | 'reject' | 'save';
   timestamp: string;
   versionNo?: number;
+  configSnapshot?: {
+    name: string;
+    ticketCount: number;
+    validFrom: string;
+    validTo: string;
+    comicAllocations: Array<{ comicTitle: string; ticketCount: number }>;
+    audienceRules: Array<{ role: string; enabled: boolean; entryText: string; limitPerUser: number }>;
+  };
+}
+
+export interface ChannelConsumptionStat {
+  channel: ChannelType;
+  label: string;
+  allocated: number;
+  claimed: number;
+  used: number;
+  expired: number;
+  claimRate: number;
+  usageRate: number;
 }

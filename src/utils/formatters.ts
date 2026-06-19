@@ -13,6 +13,7 @@ import type {
   AudienceRule,
   ActivityStatus,
   LaunchCheckItem,
+  ChannelInfo,
 } from '@/types';
 import { couponTemplates, userRoles } from '@/mock/couponTemplates';
 import { getComicById } from '@/mock/comics';
@@ -21,6 +22,12 @@ export const DEPARTMENT_LIST: DepartmentInfo[] = [
   { type: 'editor', label: '主编', description: '审核内容质量与作品范围', icon: 'book-open' },
   { type: 'business', label: '商务', description: '审核版权与商务条款', icon: 'handshake' },
   { type: 'customer_service', label: '客服', description: '确认客服话术与应急预案', icon: 'headphones' },
+];
+
+export const CHANNEL_LIST: ChannelInfo[] = [
+  { type: 'inapp_popup', label: '站内弹窗', description: 'APP 启动时的全屏弹窗', weight: 0.45 },
+  { type: 'home_banner', label: '首页 Banner', description: '首页顶部轮播横幅', weight: 0.35 },
+  { type: 'bookshelf_card', label: '书架卡片', description: '书架页推荐活动卡片', weight: 0.20 },
 ];
 
 export const formatDate = (dateStr: string): string => {
@@ -230,6 +237,7 @@ export const generatePreviewConfig = (
     .join('、');
 
   if (isEnabled) {
+    entryText = customEntryText || '参与活动';
     if (customDescription) {
       description = customDescription;
     } else {
@@ -243,22 +251,24 @@ export const generatePreviewConfig = (
         case 'expired_member':
           description = `老朋友好久不见！${config.name || template?.name || '回流礼包'}包含 ${config.ticketCount} 张阅读券，\n${comicAllocationText || ''}\n回来继续追更吧~`;
           break;
+        default:
+          description = `${config.name || template?.name || '漫画券包'}包含 ${config.ticketCount} 张阅读券`;
       }
     }
   } else {
+    entryText = '🔒 此活动不对您开放';
     switch (role) {
       case 'new_user':
-        entryText = '� 升级会员享更多福利';
         description = '当前活动仅适用于指定用户群体，可升级会员解锁更多内容';
         break;
       case 'existing_user':
-        entryText = '� 关注更多活动预告';
         description = '当前暂无匹配的活动，请关注平台后续活动通知';
         break;
       case 'expired_member':
-        entryText = '💎 立即续订会员';
         description = '成为VIP会员，解锁全站漫画无广告畅读';
         break;
+      default:
+        description = '本活动仅针对特定用户群体开放';
     }
   }
 
@@ -277,7 +287,7 @@ export const generatePreviewConfig = (
     usageTips.push('💡 使用方式：进入付费章节自动抵扣');
     usageTips.push('🔒 券包仅限本人使用，不可转让');
   } else {
-    usageTips.push(`当前身份：${roleInfo?.label}`);
+    usageTips.push(`当前身份：${roleInfo?.label || role}`);
     usageTips.push('本活动仅针对特定用户群体开放');
     usageTips.push('如有疑问请联系客服咨询');
   }
@@ -285,13 +295,13 @@ export const generatePreviewConfig = (
   return {
     role,
     showEntry,
-    entryText,
-    description,
+    entryText: entryText || '🔒 此活动不对您开放',
+    description: description || '',
     usageTips,
     comicTitles,
-    ticketCount: config.ticketCount,
-    validity: getValidityPeriod(config.validFrom, config.validTo),
-    singleBookOnly: config.singleBookOnly,
+    ticketCount: config.ticketCount ?? 0,
+    validity: getValidityPeriod(config.validFrom, config.validTo) || '',
+    singleBookOnly: config.singleBookOnly ?? false,
   };
 };
 

@@ -62,11 +62,6 @@ export default function Preview() {
     setTimeout(() => setShowClaimed(false), 3000);
   };
 
-  const handleDisabledClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
   const handleBack = () => navigate('/config');
   const handleNext = () => navigate('/summary');
 
@@ -204,28 +199,43 @@ export default function Preview() {
                 <div className="mt-4 pt-4 border-t border-ink-700">
                   <h4 className="text-xs text-ink-500 mb-2 font-medium flex items-center gap-1">
                     <Eye className="w-3.5 h-3.5" />
-                    当前角色投放规则
+                    当前角色规则
                   </h4>
                   {(() => {
                     const currentRule = config.audienceRules.find(r => r.role === selectedRole);
                     const currentCfg = generatePreviewConfig(config, selectedRole);
+                    const roleInfo = userRoles[selectedRole];
                     if (!currentRule) return null;
                     return (
                       <div className="space-y-2">
                         <div className="text-xs p-2 rounded bg-ink-900/50 flex items-center justify-between">
                           <span className="text-ink-400">是否可见</span>
                           <span className={currentCfg.showEntry ? 'text-accent-green font-medium' : 'text-red-400 font-medium'}>
-                            {currentCfg.showEntry ? '✓ 可见' : '✗ 不可见'}
+                            {currentCfg.showEntry ? '✅ 可见' : '🔒 不可见'}
+                          </span>
+                        </div>
+                        {!currentCfg.showEntry && (
+                          <div className="text-xs p-2 rounded bg-ink-900/50">
+                            <span className="text-ink-400">不可见原因：</span>
+                            <span className="text-red-400 font-medium ml-1">此活动未对{roleInfo.label}开放</span>
+                          </div>
+                        )}
+                        <div className="text-xs p-2 rounded bg-ink-900/50 flex items-center justify-between">
+                          <span className="text-ink-400">入口文案</span>
+                          <span className={currentCfg.showEntry ? 'text-white font-medium' : 'text-ink-500 font-medium'}>
+                            {currentCfg.showEntry ? currentRule.entryText : currentCfg.entryText}
                           </span>
                         </div>
                         <div className="text-xs p-2 rounded bg-ink-900/50 flex items-center justify-between">
-                          <span className="text-ink-400">入口文案</span>
-                          <span className="text-white font-medium">{currentCfg.entryText}</span>
-                        </div>
-                        <div className="text-xs p-2 rounded bg-ink-900/50 flex items-center justify-between">
-                          <span className="text-ink-400">每人限领份数</span>
+                          <span className="text-ink-400">每人限领</span>
                           <span className="text-accent-orange font-medium">{currentRule.limitPerUser} 份</span>
                         </div>
+                        {!currentCfg.showEntry && (
+                          <div className="text-xs p-2 rounded bg-red-500/10 border border-red-500/30">
+                            <span className="text-red-400 font-medium">替代提示：</span>
+                            <span className="text-red-300 ml-1">{currentCfg.entryText}</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -398,7 +408,7 @@ export default function Preview() {
                           </div>
 
                           <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-ink-950 via-ink-950/95 to-transparent pt-12">
-                            {showClaimed ? (
+                            {previewConfig.showEntry && showClaimed ? (
                               <div className="w-full py-3 bg-accent-green text-ink-950 font-semibold rounded-card flex items-center justify-center gap-2 animate-bounce-subtle">
                                 <CheckCircle2 className="w-5 h-5" />
                                 领取成功！{config.ticketCount}张券已入账
@@ -411,13 +421,10 @@ export default function Preview() {
                                 {previewConfig.entryText}
                               </button>
                             ) : (
-                              <button
-                                onClick={handleDisabledClick}
-                                className="w-full py-3.5 bg-ink-700 text-ink-400 font-medium rounded-card text-center border border-ink-600 opacity-60 cursor-not-allowed flex items-center justify-center gap-2"
-                              >
+                              <div className="w-full py-3.5 bg-ink-700 text-ink-400 font-medium rounded-card text-center border border-ink-600 opacity-60 cursor-not-allowed flex items-center justify-center gap-2 select-none">
                                 <Lock className="w-4 h-4" />
-                                此活动不对您开放
-                              </button>
+                                🔒 此活动不对您开放
+                              </div>
                             )}
                           </div>
                         </div>
@@ -588,6 +595,13 @@ export default function Preview() {
                   </ul>
                 </div>
               </div>
+
+              {!previewConfig.showEntry && (
+                <div className="mt-4 p-3 bg-ink-900/50 border border-ink-700 rounded-card">
+                  <p className="text-xs text-ink-400 mb-1">给您的替代提示：</p>
+                  <p className="text-sm text-accent-orange">{previewConfig.entryText}</p>
+                </div>
+              )}
 
               <button
                 onClick={() => setShowModal(false)}
