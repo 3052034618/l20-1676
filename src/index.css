@@ -1,0 +1,147 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.6;
+  font-weight: 400;
+  color-scheme: dark;
+  color: #e8ecf1;
+  background-color: #0f1623;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0f1623 0%, #1a2332 50%, #0f1623 100%);
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-accent-orange hover:bg-accent-orangeHover text-white px-6 py-2.5 rounded-card font-medium transition-all duration-200 shadow-md hover:shadow-lg active:shadow-inner-active;
+  }
+
+  .btn-secondary {
+    @apply bg-ink-700 hover:bg-ink-600 text-paper-100 px-6 py-2.5 rounded-card font-medium transition-all duration-200 border border-ink-500;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent hover:bg-ink-700 text-paper-200 px-4 py-2 rounded-card font-medium transition-all duration-200;
+  }
+
+  .card {
+    @apply bg-ink-800 rounded-card border border-ink-600 shadow-card transition-all duration-300;
+  }
+
+  .card-hover {
+    @apply hover:shadow-card-hover hover:-translate-y-1;
+  }
+
+  .input-field {
+    @apply w-full bg-ink-900 border border-ink-600 rounded-card px-4 py-2.5 text-paper-100 placeholder-ink-500 focus:outline-none focus:border-accent-orange focus:ring-1 focus:ring-accent-orange transition-all duration-200;
+  }
+
+  .form-label {
+    @apply block text-paper-200 text-sm font-medium mb-2;
+  }
+
+  .tag {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium transition-all duration-200;
+  }
+
+  .tag-active {
+    @apply bg-accent-orange/20 text-accent-orange border border-accent-orange/40;
+  }
+
+  .tag-default {
+    @apply bg-ink-700 text-paper-200 border border-ink-600 hover:bg-ink-600 cursor-pointer;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-card text-paper-200 hover:bg-ink-700 hover:text-white transition-all duration-200 cursor-pointer;
+  }
+
+  .nav-item-active {
+    @apply bg-ink-700 text-accent-orange border-l-2 border-accent-orange;
+  }
+
+  .comic-frame {
+    position: relative;
+  }
+
+  .comic-frame::before,
+  .comic-frame::after {
+    content: '';
+    position: absolute;
+    background: linear-gradient(135deg, transparent 45%, rgba(255, 122, 69, 0.3) 50%, transparent 55%);
+    background-size: 200% 200%;
+    animation: shimmer 3s infinite;
+  }
+
+  .comic-frame::before {
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+  }
+
+  .comic-frame::after {
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  .speech-bubble {
+    position: relative;
+    background: #243044;
+    border-radius: 4px;
+    padding: 12px 16px;
+  }
+
+  .speech-bubble::after {
+    content: '';
+    position: absolute;
+    bottom: -8px;
+    left: 24px;
+    border-width: 8px 8px 0;
+    border-style: solid;
+    border-color: #243044 transparent transparent;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a2332;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a4a68;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4a5a78;
+}
+
+::selection {
+  background: rgba(255, 122, 69, 0.4);
+  color: white;
+}
